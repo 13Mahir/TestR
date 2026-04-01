@@ -40,6 +40,36 @@ https://testr-wheat-three.vercel.app/static/pages/index.html
 
 ---
 
+## 📐 System Architecture & Documentation
+
+<details>
+<summary><b>🖼️ Click to expand System Diagrams</b></summary>
+<br>
+
+### 1. Component Diagrams
+<p align="center">
+  <img src="./Resources/Component%20diagram%20-%20Exam%20Creation%20&%20Scheduling%20Module.jpeg" alt="Exam Creation Component" width="45%">
+  &nbsp; &nbsp;
+  <img src="./Resources/Component%20diagram%20-%20User%20Management%20Module.jpeg" alt="User Management Component" width="45%">
+</p>
+
+### 2. Sequence Diagrams
+<p align="center">
+  <img src="./Resources/Sequence%20diagram%20-%20Student%20Exam%20Process.jpeg" alt="Student Exam Process" width="45%">
+  &nbsp; &nbsp;
+  <img src="./Resources/Sequence%20diagram%20-%20Teacher%20Exam%20Creation.jpeg" alt="Teacher Exam Creation" width="45%">
+</p>
+
+### 3. Core Class & Activity Configurations
+<p align="center">
+  <img src="./Resources/Class%20diagram.jpeg" alt="Class Diagram" width="50%">
+</p>
+
+*(Note: Full detailed project analytics, including further activity diagrams and PDF requirement analyses, can be found directly in the `/Resources` folder).*
+</details>
+
+---
+
 ## 🚀 Quick Start (Local Development)
 
 ### 1. Prerequisites
