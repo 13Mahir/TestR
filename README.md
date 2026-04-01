@@ -10,6 +10,10 @@
 
 ---
 
+## Deployment Link
+https://testr-wheat-three.vercel.app/static/pages/index.html
+
+---
 ## 🌟 Overview
 
 **TestR** facilitates the entire academic examination lifecycle. From user registration and course enrollment to exam creation, live proctoring, and automated result publishing, this platform handles the complexities of university logistics seamlessly and securely.
