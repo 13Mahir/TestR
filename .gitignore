@@ -22,3 +22,4 @@ Thumbs.db
 
 # Output artifacts
 app/seed_out.txt
+app/gcs-credentials.json
