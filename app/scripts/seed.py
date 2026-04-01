@@ -100,7 +100,7 @@ async def seed_students(session):
         return
 
     students_data = [
-        ('24cse240@se.clg.ac.in', 'S1Pass123', 'Alice', 'Wonder', '22', '001'),
+        ('24bcp261@se.clg.ac.in', 'Student@123', 'Alice', 'Wonder', '24', '261'),
         ('24cse241@se.clg.ac.in', 'S2Pass123', 'Bob', 'Builder', '22', '002'),
         ('24cse242@se.clg.ac.in', 'S3Pass123', 'Charlie', 'Chaplin', '22', '003'),
     ]
@@ -198,7 +198,7 @@ async def seed_assignments(session):
 async def seed_enrollments(session):
     print("Seeding course enrollments...")
     # Get Students
-    stmt_s1 = select(User).filter_by(email='24cse240@se.clg.ac.in')
+    stmt_s1 = select(User).filter_by(email='24bcp261@se.clg.ac.in')
     s1 = (await session.execute(stmt_s1)).scalars().first()
     
     stmt_s2 = select(User).filter_by(email='24cse241@se.clg.ac.in')

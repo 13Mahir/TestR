@@ -103,7 +103,7 @@ If you ran the `seed.py` script, you can log in immediately with these sample ac
 
 | Role | Email | Password |
 |---|---|---|
-| **Student** | `24cse240@se.clg.ac.in` | `S1Pass123` |
+| **Student** | `24bcp261@se.clg.ac.in` | `Student@123` |
 | **Teacher** | `john.doe@clg.ac.in` | `T1Pass123` |
 | **System Admin** | `admin@clg.ac.in` | `admin123` |
 
