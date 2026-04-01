@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <title>EMS — Examination Management System</title>
+    <script src="/static/js/theme.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
+    <link rel="stylesheet" href="/static/css/custom.css" />
+    <style>
+        /* ── Landing page only styles ───────────────────────────────── */
+        .hero {
+            min-height: 92vh;
+            display: flex;
+            align-items: center;
+            background: var(--bs-body-bg);
+        }
+
+        .hero-badge {
+            display: inline-block;
+            font-size: 0.75rem;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            padding: 0.3em 0.9em;
+            border-radius: 2rem;
+            background: var(--bs-primary-bg-subtle);
+            color: var(--bs-primary);
+            border: 1px solid var(--bs-primary-border-subtle);
+            margin-bottom: 1.25rem;
+        }
+
+        .hero-title {
+            font-size: clamp(2rem, 5vw, 3.25rem);
+            font-weight: 800;
+            line-height: 1.15;
+            letter-spacing: -0.03em;
+            color: var(--bs-emphasis-color);
+            margin-bottom: 1.25rem;
+        }
+
+        .hero-title span {
+            color: var(--bs-primary);
+        }
+
+        .hero-subtitle {
+            font-size: 1.1rem;
+            color: var(--bs-secondary-color);
+            max-width: 520px;
+            line-height: 1.7;
+            margin-bottom: 2rem;
+        }
+
+        .hero-cta-group {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .hero-visual {
+            background: var(--bs-secondary-bg);
+            border: 1px solid var(--bs-border-color);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+        }
+
+        .feature-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 0.75rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.35rem;
+            margin-bottom: 1rem;
+            flex-shrink: 0;
+        }
+
+        .section-label {
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--bs-primary);
+            margin-bottom: 0.5rem;
+        }
+
+        .section-title {
+            font-size: clamp(1.5rem, 3vw, 2.25rem);
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            color: var(--bs-emphasis-color);
+            margin-bottom: 1rem;
+        }
+
+        .manual-card {
+            background: var(--bs-secondary-bg);
+            border: 1px solid var(--bs-border-color);
+            border-radius: 1rem;
+            padding: 2rem;
+            transition: box-shadow 0.2s ease, transform 0.2s ease;
+            cursor: default;
+            height: 100%;
+        }
+
+        .manual-card:hover {
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+            transform: translateY(-2px);
+        }
+
+        .manual-card-icon {
+            font-size: 2rem;
+            margin-bottom: 1rem;
+            display: block;
+        }
+
+        .navbar-brand-text {
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            font-size: 1.2rem;
+        }
+
+        .stat-item {
+            text-align: center;
+            padding: 1rem;
+        }
+
+        .stat-number {
+            font-size: 2rem;
+            font-weight: 800;
+            color: var(--bs-primary);
+            line-height: 1;
+            margin-bottom: 0.25rem;
+        }
+
+        .stat-label {
+            font-size: 0.8rem;
+            color: var(--bs-secondary-color);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .role-pill {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            border-radius: 2rem;
+            background: var(--bs-primary-bg-subtle);
+            color: var(--bs-primary);
+            font-size: 0.85rem;
+            font-weight: 500;
+            border: 1px solid var(--bs-primary-border-subtle);
+        }
+
+        footer {
+            border-top: 1px solid var(--bs-border-color);
+        }
+    </style>
+</head>
+
+<body class="d-block" style="display: block !important;">
+
+    <!-- ── Navbar ──────────────────────────────────────────────────── -->
+    <nav class="navbar navbar-expand-md sticky-top bg-body border-bottom">
+        <div class="container">
+            <a class="navbar-brand d-flex align-items-center gap-2" href="/static/pages/index.html">
+                <img src="/static/img/logo.svg" alt="EMS" height="28" />
+                <span class="navbar-brand-text">EMS</span>
+            </a>
+
+            <div class="d-flex align-items-center gap-2 ms-auto">
+                <!-- Theme toggle -->
+                <button class="btn btn-sm btn-outline-secondary" onclick="toggleTheme()" aria-label="Toggle theme">
+                    <i class="bi bi-moon-fill js-theme-icon"></i>
+                </button>
+                <a href="/static/pages/login.html" class="btn btn-primary btn-sm">
+                    <i class="bi bi-box-arrow-in-right me-1"></i>Sign In
+                </a>
+            </div>
+        </div>
+    </nav>
+
+
+    <!-- ── Hero section ────────────────────────────────────────────── -->
+    <section class="hero" id="home">
+        <div class="container">
+            <div class="row align-items-center g-5">
+
+                <!-- Left: copy -->
+                <div class="col-12 col-lg-6">
+                    <div class="hero-badge">
+                        <i class="bi bi-mortarboard-fill me-1"></i>
+                        Academic Examination Platform
+                    </div>
+                    <h1 class="hero-title">
+                        Examinations.<br />
+                        Results.<br />
+                        <span>All in one place.</span>
+                    </h1>
+                    <p class="hero-subtitle">
+                        A complete online examination and result management
+                        system for universities. Create exams, manage students,
+                        auto-grade MCQs, and publish results — all from one
+                        secure platform.
+                    </p>
+                    <div class="hero-cta-group">
+                        <a href="/static/pages/login.html" class="btn btn-primary btn-lg px-4">
+                            <i class="bi bi-box-arrow-in-right me-2"></i>
+                            Sign In
+                        </a>
+                        <a href="#documentation" class="btn btn-outline-secondary btn-lg px-4">
+                            <i class="bi bi-book me-2"></i>
+                            User Manual
+                        </a>
+                    </div>
+
+                    <!-- Role pills -->
+                    <div class="d-flex gap-2 flex-wrap mt-4">
+                        <div class="role-pill">
+                            <i class="bi bi-shield-fill-check"></i>Admin
+                        </div>
+                        <div class="role-pill">
+                            <i class="bi bi-person-badge-fill"></i>Teacher
+                        </div>
+                        <div class="role-pill">
+                            <i class="bi bi-person-fill"></i>Student
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right: visual mock -->
+                <div class="col-12 col-lg-6 d-none d-lg-block">
+                    <div class="hero-visual">
+                        <!-- Mini dashboard mockup -->
+                        <div class="d-flex align-items-center gap-2 mb-3">
+                            <div style="width:10px;height:10px;border-radius:50%;
+                        background:#ef4444;"></div>
+                            <div style="width:10px;height:10px;border-radius:50%;
+                        background:#f59e0b;"></div>
+                            <div style="width:10px;height:10px;border-radius:50%;
+                        background:#22c55e;"></div>
+                            <span class="ms-2 small text-muted font-monospace">
+                                dashboard.html
+                            </span>
+                        </div>
+                        <!-- Fake stat cards -->
+                        <div class="row g-2 mb-3">
+                            <div class="col-4">
+                                <div class="p-2 rounded" style="background:var(--bs-primary-bg-subtle)">
+                                    <div class="small fw-bold text-primary">240</div>
+                                    <div class="small text-muted" style="font-size:0.7rem">Students</div>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="p-2 rounded" style="background:var(--bs-success-bg-subtle)">
+                                    <div class="small fw-bold text-success">12</div>
+                                    <div class="small text-muted" style="font-size:0.7rem">Courses</div>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="p-2 rounded" style="background:var(--bs-warning-bg-subtle)">
+                                    <div class="small fw-bold text-warning">8</div>
+                                    <div class="small text-muted" style="font-size:0.7rem">Exams</div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Fake table rows -->
+                        <div class="d-flex flex-column gap-1">
+                            <div class="d-flex align-items-center gap-2 p-2 rounded"
+                                style="background:var(--bs-tertiary-bg)">
+                                <div class="rounded" style="width:28px;height:28px;
+                   background:var(--bs-primary-bg-subtle);
+                   flex-shrink:0"></div>
+                                <div class="flex-fill">
+                                    <div class="small fw-medium">Data Structures</div>
+                                    <div style="font-size:0.7rem" class="text-muted">22CS101T · 60 students</div>
+                                </div>
+                                <span class="badge bg-success-subtle text-success
+                           small">Active</span>
+                            </div>
+                            <div class="d-flex align-items-center gap-2 p-2 rounded"
+                                style="background:var(--bs-tertiary-bg)">
+                                <div class="rounded" style="width:28px;height:28px;
+                   background:var(--bs-warning-bg-subtle);
+                   flex-shrink:0"></div>
+                                <div class="flex-fill">
+                                    <div class="small fw-medium">Algorithms</div>
+                                    <div style="font-size:0.7rem" class="text-muted">22CS102T · 58 students</div>
+                                </div>
+                                <span class="badge bg-warning-subtle text-warning
+                           small">Exam Soon</span>
+                            </div>
+                            <div class="d-flex align-items-center gap-2 p-2 rounded"
+                                style="background:var(--bs-tertiary-bg)">
+                                <div class="rounded" style="width:28px;height:28px;
+                   background:var(--bs-info-bg-subtle);
+                   flex-shrink:0"></div>
+                                <div class="flex-fill">
+                                    <div class="small fw-medium">OS Fundamentals</div>
+                                    <div style="font-size:0.7rem" class="text-muted">22CS103T · 55 students</div>
+                                </div>
+                                <span class="badge bg-info-subtle text-info
+                           small">Grading</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </section>
+
+
+    <!-- ── Stats bar ─────────────────────────────────────────────────── -->
+    <section class="py-5 border-top border-bottom">
+        <div class="container">
+            <div class="row g-0">
+                <div class="col-6 col-md-3">
+                    <div class="stat-item border-end">
+                        <div class="stat-number">3</div>
+                        <div class="stat-label">User Roles</div>
+                    </div>
+                </div>
+                <div class="col-6 col-md-3">
+                    <div class="stat-item border-end">
+                        <div class="stat-number">100%</div>
+                        <div class="stat-label">Auto-Graded MCQs</div>
+                    </div>
+                </div>
+                <div class="col-6 col-md-3">
+                    <div class="stat-item border-end">
+                        <div class="stat-number">Live</div>
+                        <div class="stat-label">Proctoring</div>
+                    </div>
+                </div>
+                <div class="col-6 col-md-3">
+                    <div class="stat-item">
+                        <div class="stat-number">∞</div>
+                        <div class="stat-label">Courses & Exams</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+
+    <!-- ── Features section ─────────────────────────────────────────── -->
+    <section class="py-6" id="features" style="padding:5rem 0">
+        <div class="container">
+
+            <div class="text-center mb-5">
+                <div class="section-label">Platform Features</div>
+                <h2 class="section-title">Everything your institution needs</h2>
+                <p class="text-secondary mx-auto" style="max-width:520px">
+                    From exam creation to result publishing, EMS handles the
+                    complete lifecycle of academic assessments.
+                </p>
+            </div>
+
+            <div class="row g-4">
+
+                <!-- Feature 1 -->
+                <div class="col-12 col-md-6 col-lg-4">
+                    <div class="content-card h-100">
+                        <div class="feature-icon
+                      bg-primary-subtle text-primary">
+                            <i class="bi bi-journal-plus"></i>
+                        </div>
+                        <h5 class="fw-semibold mb-2">Exam Creation</h5>
+                        <p class="text-muted small mb-0">
+                            Build exams with mixed MCQ and subjective questions.
+                            Configure timers, negative marking, and passing
+                            marks per exam.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Feature 2 -->
+                <div class="col-12 col-md-6 col-lg-4">
+                    <div class="content-card h-100">
+                        <div class="feature-icon
+                      bg-success-subtle text-success">
+                            <i class="bi bi-check2-circle"></i>
+                        </div>
+                        <h5 class="fw-semibold mb-2">Auto Grading</h5>
+                        <p class="text-muted small mb-0">
+                            MCQ answers are graded instantly on submission.
+                            Subjective answers go to a teacher review queue.
+                            Negative marking supported.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Feature 3 -->
+                <div class="col-12 col-md-6 col-lg-4">
+                    <div class="content-card h-100">
+                        <div class="feature-icon
+                      bg-warning-subtle text-warning">
+                            <i class="bi bi-camera-video-fill"></i>
+                        </div>
+                        <h5 class="fw-semibold mb-2">Live Proctoring</h5>
+                        <p class="text-muted small mb-0">
+                            Fullscreen enforcement, tab-switch detection, and
+                            periodic camera snapshots. Violation logs shown
+                            to teachers before grading.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Feature 4 -->
+                <div class="col-12 col-md-6 col-lg-4">
+                    <div class="content-card h-100">
+                        <div class="feature-icon
+                      bg-info-subtle text-info">
+                            <i class="bi bi-bar-chart-fill"></i>
+                        </div>
+                        <h5 class="fw-semibold mb-2">Results & Analytics</h5>
+                        <p class="text-muted small mb-0">
+                            Students see subject-wise and time-wise performance
+                            charts. Teachers get grade books with CSV and PDF
+                            export. Full transcripts available.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Feature 5 -->
+                <div class="col-12 col-md-6 col-lg-4">
+                    <div class="content-card h-100">
+                        <div class="feature-icon
+                      bg-danger-subtle text-danger">
+                            <i class="bi bi-shield-lock-fill"></i>
+                        </div>
+                        <h5 class="fw-semibold mb-2">Security First</h5>
+                        <p class="text-muted small mb-0">
+                            JWT auth with HttpOnly cookies, concurrent session
+                            prevention, IP logging, force password reset, and
+                            a complete admin audit trail.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Feature 6 -->
+                <div class="col-12 col-md-6 col-lg-4">
+                    <div class="content-card h-100">
+                        <div class="feature-icon
+                      bg-secondary-subtle text-secondary">
+                            <i class="bi bi-chat-dots-fill"></i>
+                        </div>
+                        <h5 class="fw-semibold mb-2">Discussion Forum</h5>
+                        <p class="text-muted small mb-0">
+                            A global discussion forum accessible to all roles.
+                            Admins and teachers can pin, lock, and moderate
+                            threads.
+                        </p>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </section>
+
+
+    <!-- ── Role overview section ────────────────────────────────────── -->
+    <section class="py-5 bg-body-secondary border-top border-bottom" id="roles">
+        <div class="container">
+            <div class="text-center mb-5">
+                <div class="section-label">Three Panels</div>
+                <h2 class="section-title">Built for every role</h2>
+            </div>
+
+            <div class="row g-4">
+
+                <div class="col-12 col-md-4">
+                    <div class="content-card h-100 text-center">
+                        <i class="bi bi-shield-fill-check text-danger fs-2
+                    mb-3 d-block"></i>
+                        <h5 class="fw-semibold mb-3">Admin</h5>
+                        <ul class="list-unstyled text-muted small text-start">
+                            <li class="mb-1">
+                                <i class="bi bi-check-circle-fill text-success
+                        me-2"></i>Manage users & bulk creation
+                            </li>
+                            <li class="mb-1">
+                                <i class="bi bi-check-circle-fill text-success
+                        me-2"></i>Course & enrollment management
+                            </li>
+                            <li class="mb-1">
+                                <i class="bi bi-check-circle-fill text-success
+                        me-2"></i>System & audit logs
+                            </li>
+                            <li class="mb-1">
+                                <i class="bi bi-check-circle-fill text-success
+                        me-2"></i>Force password reset
+                            </li>
+                            <li>
+                                <i class="bi bi-check-circle-fill text-success
+                        me-2"></i>Batch deactivation
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="col-12 col-md-4">
+                    <div class="content-card h-100 text-center">
+                        <i class="bi bi-person-badge-fill text-success fs-2
+                    mb-3 d-block"></i>
+                        <h5 class="fw-semibold mb-3">Teacher</h5>
+                        <ul class="list-unstyled text-muted small text-start">
+                            <li class="mb-1">
+                                <i class="bi bi-check-circle-fill text-success
+                        me-2"></i>Create & publish exams
+                            </li>
+                            <li class="mb-1">
+                                <i class="bi bi-check-circle-fill text-success
+                        me-2"></i>Grade subjective answers
+                            </li>
+                            <li class="mb-1">
+                                <i class="bi bi-check-circle-fill text-success
+                        me-2"></i>View proctor violation logs
+                            </li>
+                            <li class="mb-1">
+                                <i class="bi bi-check-circle-fill text-success
+                        me-2"></i>Grade book + CSV/PDF export
+                            </li>
+                            <li>
+                                <i class="bi bi-check-circle-fill text-success
+                        me-2"></i>Publish results to students
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="col-12 col-md-4">
+                    <div class="content-card h-100 text-center">
+                        <i class="bi bi-person-fill text-primary fs-2
+                    mb-3 d-block"></i>
+                        <h5 class="fw-semibold mb-3">Student</h5>
+                        <ul class="list-unstyled text-muted small text-start">
+                            <li class="mb-1">
+                                <i class="bi bi-check-circle-fill text-success
+                        me-2"></i>Attempt timed exams
+                            </li>
+                            <li class="mb-1">
+                                <i class="bi bi-check-circle-fill text-success
+                        me-2"></i>Question navigator
+                            </li>
+                            <li class="mb-1">
+                                <i class="bi bi-check-circle-fill text-success
+                        me-2"></i>View published results
+                            </li>
+                            <li class="mb-1">
+                                <i class="bi bi-check-circle-fill text-success
+                        me-2"></i>Performance charts
+                            </li>
+                            <li>
+                                <i class="bi bi-check-circle-fill text-success
+                        me-2"></i>Full transcript
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </section>
+
+
+    <!-- ── Documentation / User Manual section ──────────────────────── -->
+    <section class="py-5" id="documentation" style="padding:5rem 0">
+        <div class="container">
+
+            <div class="text-center mb-5">
+                <div class="section-label">User Manual</div>
+                <h2 class="section-title">Get started quickly</h2>
+                <p class="text-secondary mx-auto" style="max-width:480px">
+                    Step-by-step guidance for each role in the system.
+                </p>
+            </div>
+
+            <div class="row g-4">
+
+                <!-- Admin manual -->
+                <div class="col-12 col-md-4">
+                    <div class="manual-card">
+                        <span class="manual-card-icon">🛡️</span>
+                        <h5 class="fw-semibold mb-2">Admin Guide</h5>
+                        <p class="text-muted small mb-3">
+                            Set up the system: create schools, branches, users,
+                            and courses. Manage enrollments and assignments.
+                            Monitor logs and export audit trails.
+                        </p>
+                        <div class="d-flex flex-column gap-2 small text-muted">
+                            <div>
+                                <i class="bi bi-arrow-right-circle-fill
+                        text-primary me-2"></i>
+                                Creating users (single + bulk)
+                            </div>
+                            <div>
+                                <i class="bi bi-arrow-right-circle-fill
+                        text-primary me-2"></i>
+                                Managing courses & enrollments
+                            </div>
+                            <div>
+                                <i class="bi bi-arrow-right-circle-fill
+                        text-primary me-2"></i>
+                                System logs & audit export
+                            </div>
+                            <div>
+                                <i class="bi bi-arrow-right-circle-fill
+                        text-primary me-2"></i>
+                                Force password reset flow
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Teacher manual -->
+                <div class="col-12 col-md-4">
+                    <div class="manual-card">
+                        <span class="manual-card-icon">📋</span>
+                        <h5 class="fw-semibold mb-2">Teacher Guide</h5>
+                        <p class="text-muted small mb-3">
+                            Create exams with MCQ and subjective questions.
+                            Configure timers and negative marking. Review
+                            proctor reports and publish results.
+                        </p>
+                        <div class="d-flex flex-column gap-2 small text-muted">
+                            <div>
+                                <i class="bi bi-arrow-right-circle-fill
+                        text-success me-2"></i>
+                                Creating and publishing exams
+                            </div>
+                            <div>
+                                <i class="bi bi-arrow-right-circle-fill
+                        text-success me-2"></i>
+                                Grading subjective answers
+                            </div>
+                            <div>
+                                <i class="bi bi-arrow-right-circle-fill
+                        text-success me-2"></i>
+                                Reading proctor violation logs
+                            </div>
+                            <div>
+                                <i class="bi bi-arrow-right-circle-fill
+                        text-success me-2"></i>
+                                Exporting grade books
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Student manual -->
+                <div class="col-12 col-md-4">
+                    <div class="manual-card">
+                        <span class="manual-card-icon">🎓</span>
+                        <h5 class="fw-semibold mb-2">Student Guide</h5>
+                        <p class="text-muted small mb-3">
+                            Join courses, attempt exams within the allowed
+                            window, navigate questions, and check your
+                            results and transcript.
+                        </p>
+                        <div class="d-flex flex-column gap-2 small text-muted">
+                            <div>
+                                <i class="bi bi-arrow-right-circle-fill
+                        text-primary me-2"></i>
+                                Joining and browsing courses
+                            </div>
+                            <div>
+                                <i class="bi bi-arrow-right-circle-fill
+                        text-primary me-2"></i>
+                                Attempting exams + timer
+                            </div>
+                            <div>
+                                <i class="bi bi-arrow-right-circle-fill
+                        text-primary me-2"></i>
+                                Camera and fullscreen rules
+                            </div>
+                            <div>
+                                <i class="bi bi-arrow-right-circle-fill
+                        text-primary me-2"></i>
+                                Viewing results & transcript
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- CTA -->
+            <div class="text-center mt-5">
+                <p class="text-muted mb-3">
+                    Ready to get started?
+                </p>
+                <a href="/static/pages/login.html" class="btn btn-primary btn-lg px-5">
+                    <i class="bi bi-box-arrow-in-right me-2"></i>
+                    Sign In to EMS
+                </a>
+            </div>
+
+        </div>
+    </section>
+
+
+    <!-- ── Footer ────────────────────────────────────────────────────── -->
+    <footer class="py-4">
+        <div class="container">
+            <div class="d-flex justify-content-between align-items-center
+                flex-wrap gap-2">
+                <div class="d-flex align-items-center gap-2">
+                    <img src="/static/img/logo.svg" alt="EMS" height="22" />
+                    <span class="small fw-semibold text-muted">EMS</span>
+                    <span class="small text-muted">·</span>
+                    <span class="small text-muted">
+                        Examination Management System
+                    </span>
+                </div>
+                <div class="d-flex gap-3 align-items-center">
+                    <a href="#features" class="small text-muted text-decoration-none">
+                        Features
+                    </a>
+                    <a href="#documentation" class="small text-muted text-decoration-none">
+                        Manual
+                    </a>
+                    <a href="/static/pages/login.html" class="small text-muted text-decoration-none">
+                        Sign In
+                    </a>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="toggleTheme()" aria-label="Toggle theme">
+                        <i class="bi bi-moon-fill js-theme-icon" style="font-size:0.7rem"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script src="/static/js/theme.js"></script>
+
+    <script>
+        /**
+         * index.html inline script
+         * Redirect to correct panel if already logged in.
+         */
+        (async function checkSession() {
+            try {
+                const res = await fetch("/api/auth/me",
+                    { credentials: "include" });
+                if (res.ok) {
+                    const user = await res.json();
+                    if (user.force_password_reset) {
+                        window.location.href =
+                            "/static/pages/change-password.html";
+                        return;
+                    }
+                    const map = {
+                        admin: "/static/pages/admin/overview.html",
+                        teacher: "/static/pages/teacher/courses.html",
+                        student: "/static/pages/student/dashboard.html",
+                    };
+                    window.location.href =
+                        map[user.role] || "/static/pages/login.html";
+                }
+                // Not logged in → stay on landing page
+            } catch (_) { }
+        })();
+
+        // Smooth scroll for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener("click", function (e) {
+                e.preventDefault();
+                const target = document.querySelector(
+                    this.getAttribute("href")
+                );
+                if (target) target.scrollIntoView({ behavior: "smooth" });
+            });
+        });
+
+        // Update theme icons on load
+        (function () {
+            const theme = localStorage.getItem("ems-theme") || "light";
+            document.querySelectorAll(".js-theme-icon").forEach(el => {
+                el.className = theme === "dark"
+                    ? "bi bi-sun-fill js-theme-icon"
+                    : "bi bi-moon-fill js-theme-icon";
+            });
+        })();
+    </script>
+</body>
+
+</html>

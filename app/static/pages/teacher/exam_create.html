@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Create Exam — EMS</title>
+  <script src="/static/js/theme.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
+  <link rel="stylesheet" href="/static/css/custom.css" />
+</head>
+
+<body>
+  <div id="sidebar-mount"></div>
+  <div id="page-content" class="page-content d-flex flex-column">
+
+    <div class="d-flex align-items-center gap-3 mb-4">
+      <a href="/static/pages/teacher/courses.html" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-arrow-left me-1"></i>Back
+      </a>
+      <h1 class="page-title mb-0 fs-3">Create Exam</h1>
+    </div>
+
+    <div class="content-card flex-fill d-flex flex-column" style="padding: 1.5rem; margin-bottom: 0;">
+      <p class="text-muted mb-4">
+        Course: <strong id="courseNameDisplay">—</strong>
+      </p>
+
+      <div id="formAlert" class="alert d-none" role="alert"></div>
+
+      <form id="examForm" class="d-flex flex-column flex-fill" novalidate>
+
+        <div class="row g-4 mb-4">
+          <div class="col-sm-6">
+            <label class="form-label fw-medium mb-1">Exam Title</label>
+            <input type="text" class="form-control" id="efTitle" required placeholder="e.g. Mid Semester Exam" />
+            <div class="invalid-feedback">Required.</div>
+          </div>
+          <div class="col-sm-6">
+            <label class="form-label fw-medium mb-1">
+              Description <span class="text-muted">(optional)</span>
+            </label>
+            <textarea class="form-control" id="efDesc" rows="1" placeholder="Instructions for students..."></textarea>
+          </div>
+        </div>
+
+        <div class="row g-4 mb-4">
+          <div class="col-sm-4">
+            <label class="form-label fw-medium mb-1">
+              Duration (mins)
+            </label>
+            <input type="number" class="form-control" id="efDuration" min="5" max="480" required placeholder="90" />
+            <div class="invalid-feedback">5–480 minutes.</div>
+          </div>
+          <div class="col-sm-4">
+            <label class="form-label fw-medium mb-1">
+              Negative Marking
+            </label>
+            <input type="number" class="form-control" id="efNegative" step="0.01" min="0" max="1" value="0"
+              placeholder="0 = none, 0.25 = quarter" />
+            <div class="form-text small" style="line-height:1.2; margin-top:4px;">
+              0 = no penalty · 0.25 = lose ¼ mark
+            </div>
+          </div>
+          <div class="col-sm-4">
+            <label class="form-label fw-medium mb-1">
+              Passing Marks
+            </label>
+            <input type="number" class="form-control" id="efPassing" step="0.5" min="0" value="0"
+              placeholder="e.g. 35" />
+          </div>
+        </div>
+
+        <div class="row g-4 mb-4">
+          <div class="col-sm-6">
+            <label class="form-label fw-medium mb-1">Start Time</label>
+            <input type="datetime-local" class="form-control" id="efStart" required />
+            <div class="invalid-feedback">Required.</div>
+          </div>
+          <div class="col-sm-6">
+            <label class="form-label fw-medium mb-1">End Time</label>
+            <input type="datetime-local" class="form-control" id="efEnd" required />
+            <div class="invalid-feedback">Required.</div>
+          </div>
+        </div>
+
+        <div class="d-flex gap-2 mt-auto pt-3 mt-4 border-top">
+          <button type="button" class="btn btn-primary" id="submitBtn" onclick="submitExam()">
+            <span id="submitBtnText">Create &amp; Add Questions</span>
+            <span id="submitSpinner" class="spinner-border spinner-border-sm
+                       d-none ms-1" role="status"></span>
+          </button>
+          <a href="/static/pages/teacher/courses.html" class="btn btn-outline-secondary">Cancel</a>
+        </div>
+
+      </form>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="/static/js/auth.js"></script>
+  <script src="/static/js/sidebar.js"></script>
+  <script src="/static/js/notifications.js"></script>
+
+  <script>
+    const urlP = new URLSearchParams(window.location.search);
+    const courseId = parseInt(urlP.get("course_id"));
+    const editExamId = parseInt(urlP.get("exam_id")) || null;
+
+    if (editExamId) {
+      document.querySelector(".page-title").textContent = "Edit Exam Settings";
+      document.getElementById("submitBtnText").textContent = "Save Settings";
+    }
+
+    document.getElementById("courseNameDisplay").textContent =
+      urlP.get("course_name") || "—";
+
+    // Pre-fill start/end with sensible defaults only for NEW exams
+    (function prefillTimes() {
+      if (editExamId) return;
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(10, 0, 0, 0);
+      const end = new Date(tomorrow);
+      end.setHours(12, 0, 0, 0);
+      const fmt = d => d.toISOString().slice(0, 16);
+      document.getElementById("efStart").value = fmt(tomorrow);
+      document.getElementById("efEnd").value = fmt(end);
+    })();
+
+    (function () {
+      const prev = window.__onAuthReady;
+      window.__onAuthReady = async function (user) {
+        if (typeof prev === "function") await prev(user);
+        if ((!courseId || isNaN(courseId)) && !editExamId) {
+          document.getElementById("formAlert").className =
+            "alert alert-danger";
+          document.getElementById("formAlert").textContent =
+            "No course ID in URL. Return to My Courses.";
+          document.getElementById("formAlert").classList
+            .remove("d-none");
+        }
+        if (editExamId) {
+          await loadExamData(editExamId);
+        }
+      };
+    })();
+
+    async function loadExamData(eid) {
+      console.log("loadExamData() for eid:", eid);
+      try {
+        const data = await window.apiFetch(`/api/teacher/exams/${eid}`);
+        if (!data) return;
+        console.log("Exam data loaded:", data);
+
+        document.getElementById("efTitle").value = data.title;
+        document.getElementById("efDesc").value = data.description || "";
+        document.getElementById("efDuration").value = data.duration_minutes;
+        document.getElementById("efNegative").value = data.negative_marking_factor;
+        document.getElementById("efPassing").value = data.passing_marks;
+
+        if (data.course_code) {
+          document.getElementById("courseNameDisplay").textContent = data.course_code;
+        }
+
+        // Convert ISO UTC to local simple format (YYYY-MM-DDTHH:mm)
+        const toLocalFmt = iso => {
+          if (!iso) return "";
+          const d = new Date(iso);
+          if (isNaN(d.getTime())) return "";
+          const pad = n => String(n).padStart(2, '0');
+          const fmt = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+          console.log(`Converting ISO ${iso} -> Local ${fmt}`);
+          return fmt;
+        };
+
+        const startVal = toLocalFmt(data.start_time);
+        const endVal = toLocalFmt(data.end_time);
+        document.getElementById("efStart").value = startVal;
+        document.getElementById("efEnd").value = endVal;
+
+        if (data.is_published) {
+          document.getElementById("formAlert").className = "alert alert-warning";
+          document.getElementById("formAlert").textContent = "This exam is already published. Settings cannot be edited.";
+          document.getElementById("formAlert").classList.remove("d-none");
+          document.getElementById("submitBtn").disabled = true;
+          // Disable all inputs
+          document.querySelectorAll("input, textarea").forEach(i => i.disabled = true);
+        }
+      } catch (err) {
+        console.error("Error in loadExamData:", err);
+        _showAlert(document.getElementById("formAlert"), err.detail || "Failed to load exam data.", "danger");
+      }
+    }
+
+    async function submitExam() {
+      const form = document.getElementById("examForm");
+      const alertEl = document.getElementById("formAlert");
+      const btn = document.getElementById("submitBtn");
+      const btnText = document.getElementById("submitBtnText");
+      const spinner = document.getElementById("submitSpinner");
+
+      if (!form.checkValidity()) {
+        form.classList.add("was-validated");
+        return;
+      }
+
+      const startLocal = document.getElementById("efStart").value;
+      const endLocal = document.getElementById("efEnd").value;
+      if (!startLocal || !endLocal) {
+        _showAlert(alertEl, "Start and end times are required.", "danger");
+        return;
+      }
+
+      btn.disabled = true;
+      btnText.textContent = editExamId ? "Saving..." : "Creating...";
+      spinner.classList.remove("d-none");
+      alertEl.classList.add("d-none");
+
+      try {
+        const url = editExamId ? `/api/teacher/exams/${editExamId}` : "/api/teacher/exams";
+        const method = editExamId ? "PATCH" : "POST";
+
+        const payload = {
+          title: document.getElementById("efTitle").value.trim(),
+          description: document.getElementById("efDesc").value.trim() || null,
+          duration_minutes: parseInt(document.getElementById("efDuration").value),
+          negative_marking_factor: parseFloat(document.getElementById("efNegative").value || "0"),
+          passing_marks: parseFloat(document.getElementById("efPassing").value || "0"),
+          start_time: new Date(startLocal).toISOString(),
+          end_time: new Date(endLocal).toISOString(),
+        };
+
+        if (!editExamId) {
+          payload.course_id = courseId;
+        }
+
+        console.log("Submitting PATCH payload:", payload);
+        const data = await window.apiFetch(url, {
+          method: method,
+          body: JSON.stringify(payload),
+        });
+        console.log("PATCH response data:", data);
+
+        if (editExamId) {
+          _showAlert(alertEl, "Exam settings updated successfully.", "success");
+          setTimeout(() => {
+            window.location.href = `/static/pages/teacher/exam_questions.html?exam_id=${editExamId}`;
+          }, 1500);
+        } else {
+          window.location.href = `/static/pages/teacher/exam_questions.html?exam_id=${data.id}`;
+        }
+
+      } catch (err) {
+        _showAlert(alertEl, err.detail || "Failed to save exam.", "danger");
+        btn.disabled = false;
+        btnText.textContent = editExamId ? "Save Settings" : "Create & Add Questions";
+        spinner.classList.add("d-none");
+      }
+    }
+
+    function _showAlert(el, msg, type) {
+      el.className = `alert alert-${type}`;
+      el.textContent = msg;
+      el.classList.remove("d-none");
+      el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  </script>
+</body>
+
+</html>

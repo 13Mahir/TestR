@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <title>Overview — EMS</title>
+    <script src="/static/js/theme.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
+    <link rel="stylesheet" href="/static/css/custom.css" />
+    <style>
+        .stat-card {
+            border-radius: 0.75rem;
+            padding: 1.25rem 1.5rem;
+            border: 1px solid var(--bs-border-color);
+            background: var(--bs-body-bg);
+            height: 100%;
+        }
+
+        .stat-card-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: 0.6rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            flex-shrink: 0;
+        }
+
+        .stat-card-value {
+            font-size: 1.75rem;
+            font-weight: 800;
+            line-height: 1;
+            color: var(--bs-emphasis-color);
+        }
+
+        .stat-card-label {
+            font-size: 0.8rem;
+            color: var(--bs-secondary-color);
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .stat-card-sub {
+            font-size: 0.75rem;
+            color: var(--bs-secondary-color);
+            margin-top: 0.25rem;
+        }
+
+        .log-event-badge {
+            font-size: 0.65rem;
+            padding: 0.2em 0.5em;
+            border-radius: 0.3rem;
+            text-transform: capitalize;
+            white-space: nowrap;
+        }
+
+        .welcome-card {
+            background: var(--bs-primary-bg-subtle);
+            border: 1px solid var(--bs-primary-border-subtle);
+            border-radius: 0.75rem;
+            padding: 0.75rem 1.25rem;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="sidebar-mount"></div>
+
+    <div id="page-content" class="page-content">
+        <div id="notification-bar" class="notification-bar"></div>
+
+        <!-- Welcome card -->
+        <div class="welcome-card mb-4" id="welcomeCard">
+            <div class="d-flex align-items-center justify-content-between
+                flex-wrap gap-2">
+                <div>
+                    <h4 class="fw-bold mb-1" id="welcomeHeading">
+                        Welcome back 👋
+                    </h4>
+                    <p class="text-muted mb-0 x-small" id="welcomeSub">
+                        Here's what's happening in your system today.
+                    </p>
+                </div>
+                <div class="text-muted small" id="welcomeDateTime">—</div>
+            </div>
+        </div>
+
+        <!-- Stat cards row 1: Users -->
+        <div class="mb-2">
+            <p class="small fw-semibold text-muted text-uppercase
+              letter-spacing-1 mb-2" style="letter-spacing:0.06em">
+                Users
+            </p>
+        </div>
+        <div class="row g-3 mb-4" id="userStatsRow">
+            <!-- Injected by JS -->
+            <div class="col-12 text-center text-muted py-3">
+                <div class="spinner-border spinner-border-sm" role="status">
+                </div>
+            </div>
+        </div>
+
+        <!-- Stat cards row 2: Courses + Exams -->
+        <div class="mb-2">
+            <p class="small fw-semibold text-muted text-uppercase
+              mb-2" style="letter-spacing:0.06em">
+                Courses &amp; Exams
+            </p>
+        </div>
+        <div class="row g-3 mb-4" id="courseExamStatsRow">
+            <div class="col-12 text-center text-muted py-3">
+                <div class="spinner-border spinner-border-sm" role="status">
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom row: recent logs + quick links -->
+        <div class="row g-3">
+
+            <!-- Recent system logs -->
+            <div class="col-12 col-lg-7">
+                <div class="content-card h-100">
+                    <div class="d-flex justify-content-between
+                    align-items-center mb-3">
+                        <h6 class="fw-semibold mb-0">
+                            <i class="bi bi-journal-text text-primary me-2"></i>
+                            Recent Activity
+                        </h6>
+                        <a href="/static/pages/admin/logs.html" class="btn btn-link btn-sm p-0 text-muted small">
+                            View all logs →
+                        </a>
+                    </div>
+                    <div id="recentLogsArea">
+                        <div class="text-center text-muted py-3">
+                            <div class="spinner-border spinner-border-sm" role="status"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick links -->
+            <div class="col-12 col-lg-5">
+                <div class="content-card h-100">
+                    <h6 class="fw-semibold mb-3">
+                        <i class="bi bi-lightning-fill text-warning me-2"></i>
+                        Quick Actions
+                    </h6>
+                    <div class="d-flex flex-column gap-2">
+                        <a href="/static/pages/admin/users.html" class="btn btn-outline-primary btn-sm text-start">
+                            <i class="bi bi-person-plus-fill me-2"></i>
+                            Manage Users
+                        </a>
+                        <a href="/static/pages/admin/courses.html" class="btn btn-outline-success btn-sm text-start">
+                            <i class="bi bi-plus-circle-fill me-2"></i>
+                            Manage Courses
+                        </a>
+                        <a href="/static/pages/admin/logs.html" class="btn btn-outline-secondary btn-sm text-start">
+                            <i class="bi bi-shield-lock-fill me-2"></i>
+                            View Audit Log
+                        </a>
+                        <a href="/static/pages/discussion.html" class="btn btn-outline-secondary btn-sm text-start">
+                            <i class="bi bi-chat-dots-fill me-2"></i>
+                            Discussion Forum
+                        </a>
+                    </div>
+
+                    <!-- System health indicators -->
+                    <hr class="my-3" />
+                    <h6 class="fw-semibold mb-3 small text-muted
+                   text-uppercase" style="letter-spacing:0.06em">
+                        System Status
+                    </h6>
+                    <div class="d-flex flex-column gap-2" id="systemStatusArea">
+                        <div class="d-flex justify-content-between
+                      align-items-center small">
+                            <span class="text-muted">API</span>
+                            <span class="badge bg-success-subtle text-success">
+                                <i class="bi bi-circle-fill me-1" style="font-size:0.5rem"></i>Online
+                            </span>
+                        </div>
+                        <div class="d-flex justify-content-between
+                      align-items-center small">
+                            <span class="text-muted">Database</span>
+                            <span class="badge bg-success-subtle text-success" id="dbStatusBadge">
+                                <i class="bi bi-circle-fill me-1" style="font-size:0.5rem"></i>Connected
+                            </span>
+                        </div>
+                        <div class="d-flex justify-content-between
+                      align-items-center small">
+                            <span class="text-muted">Auth</span>
+                            <span class="badge bg-success-subtle text-success">
+                                <i class="bi bi-circle-fill me-1" style="font-size:0.5rem"></i>Active
+                            </span>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+    </div><!-- /#page-content -->
+
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/auth.js"></script>
+    <script src="/static/js/sidebar.js"></script>
+    <script src="/static/js/notifications.js"></script>
+
+    <script>
+        /**
+         * admin/overview.html — page script
+         */
+
+        // ── Auth ready ────────────────────────────────────────────────────
+        (function () {
+            const prev = window.__onAuthReady;
+            window.__onAuthReady = async function (user) {
+                if (typeof prev === "function") await prev(user);
+
+                // Set welcome message
+                document.getElementById("welcomeHeading").textContent =
+                    `Welcome back, ${user.first_name} 👋`;
+                document.getElementById("welcomeDateTime").textContent =
+                    new Date().toLocaleDateString(undefined, {
+                        weekday: "long",
+                        year: "numeric",
+                        month: "long",
+                        day: "numeric",
+                    });
+
+                await loadStats();
+            };
+        })();
+
+        // ── Load stats ────────────────────────────────────────────────────
+
+        async function loadStats() {
+            try {
+                const data = await window.apiFetch("/api/admin/overview/stats");
+                if (!data) return;
+
+                renderUserStats(data.users, data.enrollments);
+                renderCourseExamStats(data.courses, data.exams);
+                renderRecentLogs(data.recent_system_logs);
+
+            } catch (err) {
+                document.getElementById("userStatsRow").innerHTML =
+                    `<div class="col-12 text-danger text-center small py-2">
+         <i class="bi bi-exclamation-triangle me-2"></i>
+         ${_esc(err.detail || "Failed to load stats.")}
+       </div>`;
+            }
+        }
+
+        // ── User stat cards ───────────────────────────────────────────────
+
+        function renderUserStats(users, enrollments) {
+            const row = document.getElementById("userStatsRow");
+            row.innerHTML = `
+    ${_statCard({
+                icon: "bi-people-fill",
+                iconBg: "bg-primary-subtle text-primary",
+                value: users.total,
+                label: "Total Users",
+                sub: `${users.active} active · ${users.inactive} inactive`,
+                cols: "col-6 col-md-3",
+            })}
+    ${_statCard({
+                icon: "bi-person-fill",
+                iconBg: "bg-info-subtle text-info",
+                value: users.students,
+                label: "Students",
+                sub: "Registered accounts",
+                cols: "col-6 col-md-3",
+            })}
+    ${_statCard({
+                icon: "bi-person-badge-fill",
+                iconBg: "bg-success-subtle text-success",
+                value: users.teachers,
+                label: "Teachers",
+                sub: "Registered accounts",
+                cols: "col-6 col-md-3",
+            })}
+    ${_statCard({
+                icon: "bi-diagram-3-fill",
+                iconBg: "bg-warning-subtle text-warning",
+                value: enrollments.total,
+                label: "Enrollments",
+                sub: "Course-student links",
+                cols: "col-6 col-md-3",
+            })}`;
+        }
+
+        // ── Course + Exam stat cards ──────────────────────────────────────
+
+        function renderCourseExamStats(courses, exams) {
+            const row = document.getElementById("courseExamStatsRow");
+            row.innerHTML = `
+    ${_statCard({
+                icon: "bi-mortarboard-fill",
+                iconBg: "bg-primary-subtle text-primary",
+                value: courses.total,
+                label: "Courses",
+                sub: `${courses.active} active · ${courses.inactive} inactive`,
+                cols: "col-6 col-md-4",
+            })}
+    ${_statCard({
+                icon: "bi-journal-check",
+                iconBg: "bg-success-subtle text-success",
+                value: exams.published,
+                label: "Published Exams",
+                sub: `${exams.total} total exams`,
+                cols: "col-6 col-md-4",
+            })}
+    ${_statCard({
+                icon: "bi-trophy-fill",
+                iconBg: "bg-warning-subtle text-warning",
+                value: exams.results_published,
+                label: "Results Released",
+                sub: "Students can see their scores",
+                cols: "col-6 col-md-4",
+            })}`;
+        }
+
+        // ── Recent logs ───────────────────────────────────────────────────
+
+        function renderRecentLogs(logs) {
+            const area = document.getElementById("recentLogsArea");
+
+            if (!logs || logs.length === 0) {
+                area.innerHTML = `
+      <div class="text-center text-muted py-3 small">
+        <i class="bi bi-inbox d-block fs-4 mb-1 opacity-50"></i>
+        No recent activity
+      </div>`;
+                return;
+            }
+
+            area.innerHTML = `
+    <div class="d-flex flex-column gap-0">
+      ${logs.map(log => `
+        <div class="d-flex align-items-start gap-3 py-2
+                    border-bottom">
+          <div class="mt-1 flex-shrink-0">
+            <span class="badge log-event-badge
+                         ${_eventBadgeCls(log.event_type)}">
+              ${_formatEvent(log.event_type)}
+            </span>
+          </div>
+          <div class="flex-fill min-w-0">
+            <div class="small text-body"
+                 style="overflow:hidden;text-overflow:ellipsis;
+                        white-space:nowrap"
+                 title="${_esc(log.description)}">
+              ${_esc(log.description)}
+            </div>
+            <div class="small text-muted">
+              ${_relativeTime(log.created_at)}
+            </div>
+          </div>
+        </div>`).join("")}
+    </div>`;
+        }
+
+        // ── Stat card builder ─────────────────────────────────────────────
+
+        function _statCard({ icon, iconBg, value, label, sub, cols }) {
+            return `
+    <div class="${cols}">
+      <div class="stat-card">
+        <div class="d-flex align-items-start gap-3">
+          <div class="stat-card-icon ${iconBg}">
+            <i class="bi ${icon}"></i>
+          </div>
+          <div>
+            <div class="stat-card-value">${value}</div>
+            <div class="stat-card-label">${label}</div>
+            <div class="stat-card-sub">${sub}</div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────
+
+        function _eventBadgeCls(type) {
+            const map = {
+                exam_created: "bg-primary-subtle text-primary",
+                exam_published: "bg-success-subtle text-success",
+                results_published: "bg-info-subtle text-info",
+                users_created: "bg-warning-subtle text-warning",
+                course_created: "bg-secondary-subtle text-secondary",
+                course_activated: "bg-success-subtle text-success",
+                course_deactivated: "bg-danger-subtle text-danger",
+            };
+            return map[type] || "bg-secondary-subtle text-secondary";
+        }
+
+        function _formatEvent(type) {
+            return (type || "").replace(/_/g, " ");
+        }
+
+        function _relativeTime(iso) {
+            const diff = Date.now() - new Date(iso).getTime();
+            const mins = Math.floor(diff / 60000);
+            if (mins < 1) return "just now";
+            if (mins < 60) return `${mins}m ago`;
+            const hrs = Math.floor(mins / 60);
+            if (hrs < 24) return `${hrs}h ago`;
+            return Math.floor(hrs / 24) + "d ago";
+        }
+
+        function _esc(str) {
+            return String(str || "")
+                .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,24 @@
+# Environments
+.env
+.venv/
+.venv_mac_test/
+.venv_mac_temp/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Agent state
+.agent/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Output artifacts
+app/seed_out.txt

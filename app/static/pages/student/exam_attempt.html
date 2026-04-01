@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Exam — EMS</title>
+    <script src="/static/js/theme.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
+    <link rel="stylesheet" href="/static/css/custom.css" />
+    <style>
+        body {
+            overflow: hidden;
+            height: 100vh;
+        }
+
+        .exam-shell {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Top bar */
+        .exam-topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.6rem 1rem;
+            background: var(--bs-body-bg);
+            border-bottom: 1px solid var(--bs-border-color);
+            flex-shrink: 0;
+            gap: 1rem;
+        }
+
+        .exam-timer {
+            font-size: 1.25rem;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            letter-spacing: 0.05em;
+            color: var(--bs-emphasis-color);
+            min-width: 80px;
+            text-align: center;
+        }
+
+        .exam-timer.warning {
+            color: #f59e0b;
+        }
+
+        .exam-timer.danger {
+            color: #ef4444;
+        }
+
+        /* Main layout */
+        .exam-body {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* Navigator sidebar */
+        .exam-nav {
+            border-bottom: 1px solid var(--bs-border-color);
+            padding: 0.5rem 1rem;
+            overflow-x: auto;
+            flex-shrink: 0;
+            background: var(--bs-tertiary-bg);
+            display: flex;
+            align-items: center;
+        }
+
+        .exam-nav-grid {
+            display: flex;
+            flex-direction: row;
+            gap: 4px;
+        }
+
+        .q-nav-btn {
+            aspect-ratio: 1;
+            border: 1px solid var(--bs-border-color);
+            border-radius: 0.3rem;
+            background: var(--bs-body-bg);
+            font-size: 0.7rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.1s;
+        }
+
+        .q-nav-btn.answered {
+            background: var(--bs-success-bg-subtle);
+            border-color: var(--bs-success-border-subtle);
+            color: var(--bs-success);
+        }
+
+        .q-nav-btn.current {
+            background: var(--bs-primary);
+            border-color: var(--bs-primary);
+            color: #fff;
+        }
+
+        /* Question area */
+        .exam-question-area {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1.5rem;
+        }
+
+        .option-label {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem;
+            border: 1px solid var(--bs-border-color);
+            border-radius: 0.5rem;
+            cursor: pointer;
+            transition: background 0.1s, border-color 0.1s;
+            margin-bottom: 0.5rem;
+        }
+
+        .option-label:hover {
+            background: var(--bs-secondary-bg);
+        }
+
+        .option-label.selected {
+            background: var(--bs-primary-bg-subtle);
+            border-color: var(--bs-primary);
+        }
+
+        .option-radio {
+            flex-shrink: 0;
+            margin-top: 2px;
+        }
+
+        /* Camera preview */
+        #cameraPreview {
+            width: 140px;
+            height: 90px;
+            border-radius: 0.5rem;
+            object-fit: cover;
+            border: 2px solid var(--bs-border-color);
+            background: #000;
+        }
+
+        @media (max-width: 600px) {
+
+            #cameraPreview {
+                width: 80px;
+                height: 55px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="exam-shell">
+
+        <!-- Top bar -->
+        <div class="exam-topbar">
+
+            <!-- Left: exam title -->
+            <div class="d-flex align-items-center gap-2 min-w-0">
+                <i class="bi bi-journal-text text-primary
+                flex-shrink-0"></i>
+                <span class="fw-semibold text-truncate small" id="examTitleBar">Loading...</span>
+            </div>
+
+            <!-- Centre: timer -->
+            <div class="exam-timer" id="timerDisplay">--:--</div>
+
+            <!-- Right: camera + progress + submit -->
+            <div class="d-flex align-items-center gap-2
+                flex-shrink-0">
+                <video id="cameraPreview" autoplay muted playsinline></video>
+                <span class="small text-muted" id="progressLabel">
+                    0 / 0
+                </span>
+                <button class="btn btn-success btn-sm" id="submitBtn" onclick="confirmSubmit()">
+                    <i class="bi bi-send-check me-1"></i>Submit
+                </button>
+            </div>
+
+        </div>
+
+        <!-- Body: navigator + question -->
+        <div class="exam-body">
+
+            <!-- Question navigator -->
+            <div class="exam-nav">
+                <div class="small fw-semibold text-muted mb-0 me-3">
+                    Questions
+                </div>
+                <div class="exam-nav-grid" id="navGrid"></div>
+                <div class="ms-3 small text-muted d-flex align-items-center">
+                    <span class="d-inline-block me-1" style="width:12px;height:12px;
+                     background:var(--bs-success-bg-subtle);
+                     border:1px solid var(--bs-success-border-subtle);
+                     border-radius:2px"></span>
+                    Answered
+                </div>
+            </div>
+
+            <!-- Question area -->
+            <div class="exam-question-area" id="questionArea">
+                <div class="text-center text-muted py-5">
+                    <div class="spinner-border" role="status"></div>
+                    <p class="mt-2 small">Loading questions...</p>
+                </div>
+            </div>
+
+        </div>
+
+    </div><!-- /.exam-shell -->
+
+    <!-- Submit confirm modal -->
+    <div class="modal fade" id="submitModal" tabindex="-1">
+        <div class="modal-dialog modal-sm">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Submit Exam?</h5>
+                </div>
+                <div class="modal-body small" id="submitModalBody">
+                    Are you sure you want to submit?
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Continue</button>
+                    <button type="button" class="btn btn-success btn-sm" onclick="doSubmit(false)">
+                        Submit Now
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pre-exam Setup Modal -->
+    <div class="modal fade" id="setupModal" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title fw-bold">Proctoring Setup</h5>
+                </div>
+                <div class="modal-body p-4">
+                    <p class="text-muted small mb-4">
+                        Please complete the following checks to start your exam.
+                        Camera access and Fullscreen mode are mandatory.
+                    </p>
+
+                    <div class="d-grid gap-3">
+                        <div class="p-3 border rounded d-flex align-items-center justify-content-between"
+                            id="checkCameraRow">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="bg-light p-2 rounded text-primary">
+                                    <i class="bi bi-camera-video fs-4"></i>
+                                </div>
+                                <div>
+                                    <div class="fw-bold small">Camera Access</div>
+                                    <div class="text-muted" style="font-size:0.7rem;" id="cameraStatusText">Requesting
+                                        permission...</div>
+                                </div>
+                            </div>
+                            <div id="cameraCheckIcon">
+                                <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+                            </div>
+                        </div>
+
+                        <div class="p-3 border rounded d-flex align-items-center justify-content-between"
+                            id="checkFullscreenRow">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="bg-light p-2 rounded text-primary">
+                                    <i class="bi bi-fullscreen fs-4"></i>
+                                </div>
+                                <div>
+                                    <div class="fw-bold small">Fullscreen Mode</div>
+                                    <div class="text-muted" style="font-size:0.7rem;" id="fsStatusText">Pending...</div>
+                                </div>
+                            </div>
+                            <div id="fsCheckIcon">
+                                <i class="bi bi-dash-circle text-muted"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-warning mt-4 py-2 px-3 d-none" id="setupWarning">
+                        <div class="d-flex align-items-center justify-content-between">
+                            <div>
+                                <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                                <span class="small" id="setupWarningText"></span>
+                            </div>
+                            <button class="btn btn-sm btn-outline-dark fw-bold px-2 py-0 ms-2"
+                                style="font-size:0.65rem;" onclick="window.retryProctorCamera()">
+                                Retry
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer border-0 p-4 pt-0">
+                    <button type="button" class="btn btn-primary w-100 fw-bold py-2" id="startExamBtn" disabled
+                        onclick="tryStartExam()">
+                        Start Exam Now
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Proctoring Blocking Overlay -->
+    <div id="proctorOverlay" class="d-none"
+        style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.95); z-index:99999; display:flex; align-items:center; justify-content:center;">
+        <div class="text-center text-white p-4" style="max-width:450px;">
+            <div class="mb-4">
+                <div class="display-1 text-danger mb-3">
+                    <i class="bi bi-shield-lock"></i>
+                </div>
+                <h2 class="fw-bold">Security Violation</h2>
+                <p class="text-light opacity-75">
+                    Your exam has been paused because you exited fullscreen mode.
+                    Strict proctoring is enabled.
+                </p>
+                <div class="alert alert-danger border-0 bg-danger bg-opacity-10 text-danger small">
+                    All violations are logged and reported to your instructor.
+                </div>
+            </div>
+            <button class="btn btn-primary btn-lg w-100 fw-bold shadow" onclick="resumeFullscreen()">
+                <i class="bi bi-fullscreen me-2"></i> Resume Exam
+            </button>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/auth.js"></script>
+    <!-- NO sidebar.js — exam is full screen, no sidebar -->
+    <script src="/static/js/proctor.js"></script>
+
+    <script>
+        /**
+         * exam_attempt.html — exam engine
+         *
+         * State:
+         *   questions[]    — all questions from API
+         *   answers{}      — {questionId: {optionId|text}} in-memory map
+         *   currentIndex   — 0-based index of displayed question
+         *   timerSeconds   — countdown value
+         *   attemptId      — from URL
+         *   examId         — from URL
+         *   submitted      — boolean guard against double submit
+         */
+
+        const urlP = new URLSearchParams(window.location.search);
+        const attemptId = parseInt(urlP.get("attempt_id"));
+        const examId = parseInt(urlP.get("exam_id"));
+
+        let questions = [];
+        let answers = {};     // { questionId: { optionId, text } }
+        let currentIndex = 0;
+        let timerSeconds = 0;
+        let timerHandle = null;
+        let submitted = false;
+        let examDuration = 0;      // minutes, for proctor.js
+
+        // ── Auth ready ────────────────────────────────────────────────────
+        (function () {
+            const prev = window.__onAuthReady;
+            window.__onAuthReady = async function (user) {
+                if (typeof prev === "function") await prev(user);
+                if (!attemptId || !examId || isNaN(attemptId)) {
+                    document.getElementById("questionArea").innerHTML = `
+        <div class="text-center text-danger py-5">
+          <i class="bi bi-exclamation-triangle fs-2
+                    d-block mb-2"></i>
+          Invalid attempt URL. Return to
+          <a href="/static/pages/student/courses.html">
+            My Courses
+          </a>.
+        </div>`;
+                    return;
+                }
+                await loadAttempt();
+            };
+        })();
+
+        // ── Load attempt + questions ──────────────────────────────────────
+
+        async function loadAttempt() {
+            try {
+                const data = await window.apiFetch(
+                    `/api/student/attempts/${attemptId}/questions`
+                );
+                if (!data) return;
+
+                questions = data.items;
+                const lobbyData = await window.apiFetch(
+                    `/api/student/exams/${examId}/lobby`
+                );
+                examDuration = lobbyData?.duration_minutes || 60;
+
+                // Restore saved answers
+                questions.forEach(q => {
+                    if (q.saved_answer) {
+                        answers[q.id] = {
+                            optionId: q.saved_answer.selected_option_id,
+                            text: q.saved_answer.subjective_text,
+                        };
+                    }
+                });
+
+                document.getElementById("examTitleBar").textContent =
+                    lobbyData?.title || `Exam #${examId}`;
+
+                // Show setup modal instead of starting immediately
+                const modal = new bootstrap.Modal(document.getElementById('setupModal'));
+                modal.show();
+
+                // Init proctor (but don't start timer yet)
+                if (typeof window.initProctor === "function") {
+                    window.initProctor(attemptId);
+                    // checkCameraStatus is defined in proctor.js
+                }
+
+            } catch (err) {
+                document.getElementById("questionArea").innerHTML = `
+      <div class="text-center text-danger py-5 small">
+        <i class="bi bi-exclamation-triangle fs-2
+                  d-block mb-2"></i>
+        ${_esc(err.detail || "Failed to load questions.")}
+      </div>`;
+            }
+        }
+
+        async function tryStartExam() {
+            const btn = document.getElementById('startExamBtn');
+            btn.disabled = true;
+            btn.textContent = "Starting...";
+
+            try {
+                // 1. Request Fullscreen (must be first as it needs gesture)
+                const doc = document.documentElement;
+                if (doc.requestFullscreen) await doc.requestFullscreen();
+                else if (doc.webkitRequestFullscreen) await doc.webkitRequestFullscreen();
+
+                // 2. Hide modal
+                const modalEl = document.getElementById('setupModal');
+                bootstrap.Modal.getInstance(modalEl).hide();
+
+                // 3. Start Timer
+                timerSeconds = examDuration * 60;
+                startTimer();
+
+                // 4. Render first question
+                renderNavGrid();
+                showQuestion(0);
+
+            } catch (err) {
+                console.error("Failed to start exam:", err);
+                btn.disabled = false;
+                btn.textContent = "Start Exam Now";
+                alert("Failed to enter fullscreen. Please try again or check browser settings.");
+            }
+        }
+
+        function resumeFullscreen() {
+            const doc = document.documentElement;
+            const p = (doc.requestFullscreen) ? doc.requestFullscreen() : doc.webkitRequestFullscreen();
+
+            p.then(() => {
+                document.getElementById('proctorOverlay').classList.add('d-none');
+            }).catch(err => {
+                console.error("Resume fullscreen failed:", err);
+                alert("Failed to re-enter fullscreen. Please try again.");
+            });
+        }
+
+        // ── Timer ─────────────────────────────────────────────────────────
+
+        function startTimer() {
+            renderTimer();
+            timerHandle = setInterval(async () => {
+                timerSeconds--;
+                renderTimer();
+                if (timerSeconds <= 0) {
+                    clearInterval(timerHandle);
+                    await doSubmit(true);   // auto-submit
+                }
+            }, 1000);
+        }
+
+        function renderTimer() {
+            const el = document.getElementById("timerDisplay");
+            const mins = Math.floor(Math.abs(timerSeconds) / 60);
+            const secs = Math.abs(timerSeconds) % 60;
+            el.textContent =
+                String(mins).padStart(2, "0") + ":" +
+                String(secs).padStart(2, "0");
+
+            el.className = "exam-timer";
+            if (timerSeconds <= 60) el.classList.add("danger");
+            else if (timerSeconds <= 300) el.classList.add("warning");
+        }
+
+        // ── Navigator grid ────────────────────────────────────────────────
+
+        function renderNavGrid() {
+            const grid = document.getElementById("navGrid");
+            grid.innerHTML = questions.map((q, i) => {
+                const isAnswered = answers[q.id] &&
+                    (answers[q.id].optionId != null ||
+                        (answers[q.id].text && answers[q.id].text.trim()));
+                const isCurrent = i === currentIndex;
+                return `
+      <button class="q-nav-btn
+                ${isCurrent ? 'current' : ''}
+                ${isAnswered && !isCurrent ? 'answered' : ''}"
+              onclick="showQuestion(${i})"
+              title="Q${i + 1}">
+        ${i + 1}
+      </button>`;
+            }).join("");
+
+            // Progress label
+            const answered = Object.values(answers).filter(a =>
+                a.optionId != null ||
+                (a.text && a.text.trim())
+            ).length;
+            document.getElementById("progressLabel").textContent =
+                `${answered} / ${questions.length}`;
+        }
+
+        // ── Show question ─────────────────────────────────────────────────
+
+        function showQuestion(index) {
+            if (index < 0 || index >= questions.length) return;
+            currentIndex = index;
+            const q = questions[index];
+            const saved = answers[q.id] || {};
+            const area = document.getElementById("questionArea");
+
+            let body = "";
+
+            if (q.question_type === "mcq") {
+                body = q.options.map(o => {
+                    const sel = saved.optionId === o.id;
+                    return `
+        <label class="option-label ${sel ? 'selected' : ''}"
+               id="opt_label_${o.id}">
+          <input type="radio"
+                 class="option-radio form-check-input"
+                 name="mcq_${q.id}"
+                 value="${o.id}"
+                 ${sel ? 'checked' : ''}
+                 onchange="selectOption(${q.id}, ${o.id})"/>
+          <span class="fw-semibold me-2">${_esc(o.option_label)}</span>
+          <span class="small">${_esc(o.option_text)}</span>
+        </label>`;
+                }).join("");
+            } else {
+                body = `
+      <textarea class="form-control"
+                id="subj_${q.id}"
+                rows="8"
+                placeholder="Type your answer here..."
+                ${q.word_limit
+                        ? `maxlength="${q.word_limit * 7}"`
+                        : ""}
+                oninput="typeSubjective(${q.id}, this.value)"
+      >${_esc(saved.text || "")}</textarea>
+      ${q.word_limit
+                        ? `<div class="small text-muted mt-1">
+             Word limit: ${q.word_limit} words
+           </div>`
+                        : ""}`;
+            }
+
+            area.innerHTML = `
+    <div style="max-width:680px">
+      <div class="d-flex align-items-center gap-2 mb-3">
+        <span class="badge ${q.question_type === 'mcq'
+                    ? 'bg-primary' : 'bg-warning text-dark'}">
+          Q${index + 1} of ${questions.length}
+          · ${q.question_type === 'mcq' ? 'MCQ' : 'Subjective'}
+        </span>
+        <span class="small text-muted">
+          ${q.marks} mark${q.marks !== 1 ? 's' : ''}
+        </span>
+      </div>
+      <p class="fw-medium mb-4">${_esc(q.question_text)}</p>
+      <div id="answerArea">${body}</div>
+      <div class="d-flex gap-2 mt-4">
+        <button class="btn btn-outline-secondary btn-sm"
+                onclick="showQuestion(${index - 1})"
+                ${index === 0 ? 'disabled' : ''}>
+          <i class="bi bi-chevron-left me-1"></i>Previous
+        </button>
+        <button class="btn btn-outline-primary btn-sm"
+                onclick="showQuestion(${index + 1})"
+                ${index === questions.length - 1
+                    ? 'disabled' : ''}>
+          Next<i class="bi bi-chevron-right ms-1"></i>
+        </button>
+      </div>
+    </div>`;
+
+            renderNavGrid();
+        }
+
+        // ── Answer handlers ───────────────────────────────────────────────
+
+        async function selectOption(questionId, optionId) {
+            answers[questionId] = { optionId, text: null };
+            renderNavGrid();
+
+            // Highlight selected label
+            document.querySelectorAll(`[id^="opt_label_"]`).forEach(el =>
+                el.classList.remove("selected")
+            );
+            const lbl = document.getElementById(`opt_label_${optionId}`);
+            if (lbl) lbl.classList.add("selected");
+
+            // Save to server (fire-and-forget)
+            window.apiFetch(
+                `/api/student/attempts/${attemptId}/answers`
+                + `?question_id=${questionId}`
+                + `&selected_option_id=${optionId}`,
+                { method: "POST" }
+            ).catch(() => { });
+        }
+
+        let subjTimer = null;
+        function typeSubjective(questionId, text) {
+            answers[questionId] = { optionId: null, text };
+            renderNavGrid();
+
+            // Debounce server save by 1.5s
+            if (subjTimer) clearTimeout(subjTimer);
+            subjTimer = setTimeout(() => {
+                window.apiFetch(
+                    `/api/student/attempts/${attemptId}/answers`
+                    + `?question_id=${questionId}`
+                    + `&subjective_text=${encodeURIComponent(text)}`,
+                    { method: "POST" }
+                ).catch(() => { });
+            }, 1500);
+        }
+
+        // ── Submit ────────────────────────────────────────────────────────
+
+        function confirmSubmit() {
+            const answered = Object.values(answers).filter(a =>
+                a.optionId != null ||
+                (a.text && a.text.trim())
+            ).length;
+            const unanswered = questions.length - answered;
+
+            document.getElementById("submitModalBody").innerHTML = `
+    <p>You have answered
+      <strong>${answered}</strong> of
+      <strong>${questions.length}</strong> questions.
+    </p>
+    ${unanswered > 0
+                    ? `<p class="text-warning">
+           <i class="bi bi-exclamation-triangle me-1"></i>
+           ${unanswered} question${unanswered !== 1 ? 's' : ''} unanswered.
+         </p>`
+                    : ""}
+    <p>Once submitted you cannot return to this exam.</p>`;
+
+            new bootstrap.Modal(
+                document.getElementById("submitModal")
+            ).show();
+        }
+
+        async function doSubmit(auto = false) {
+            if (submitted) return;
+            submitted = true;
+
+            if (timerHandle) clearInterval(timerHandle);
+
+            // Stop proctoring
+            if (typeof window.stopProctor === "function") {
+                window.stopProctor();
+            }
+
+            // Exit fullscreen
+            if (document.fullscreenElement) {
+                document.exitFullscreen().catch(() => { });
+            }
+
+            const btn = document.getElementById("submitBtn");
+            if (btn) {
+                btn.disabled = true;
+                btn.textContent = "Submitting...";
+            }
+
+            try {
+                await window.apiFetch(
+                    `/api/student/attempts/${attemptId}/submit`
+                    + `?auto_submit=${auto}`,
+                    { method: "POST" }
+                );
+
+                // Replace exam shell with success screen
+                document.querySelector(".exam-shell").innerHTML = `
+      <div class="d-flex flex-column align-items-center justify-content-center h-100 w-100 text-center">
+        <div style="max-width:500px; padding: 2rem;">
+          <div class="mb-4">
+            <i class="bi bi-check-circle-fill text-success" style="font-size:5rem"></i>
+          </div>
+          <h2 class="fw-bold mb-3">
+            ${auto ? 'Time Up!' : 'Exam Submitted!'}
+          </h2>
+          <p class="text-muted mb-5 fs-5">
+            ${auto
+                        ? 'Your exam was automatically submitted.'
+                        : 'Your exam has been submitted successfully.'}
+            Results will be available after the teacher
+            publishes them.
+          </p>
+          <a href="/static/pages/student/dashboard.html"
+             class="btn btn-primary">
+            <i class="bi bi-speedometer2 me-2"></i>
+            Go to Dashboard
+          </a>
+        </div>
+      </div>`;
+
+            } catch (err) {
+                submitted = false;
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML =
+                        '<i class="bi bi-send-check me-1"></i>Submit';
+                }
+                alert(err.detail || "Submit failed. Please try again.");
+            }
+        }
+
+        // ── Fullscreen ────────────────────────────────────────────────────
+
+        function requestFullscreen() {
+            const el = document.documentElement;
+            if (el.requestFullscreen) {
+                el.requestFullscreen().catch(() => { });
+            } else if (el.webkitRequestFullscreen) {
+                el.webkitRequestFullscreen();
+            }
+        }
+
+        function _esc(s) {
+            return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+    </script>
+</body>
+
+</html>

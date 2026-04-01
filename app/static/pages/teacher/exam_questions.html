@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Exam Questions — EMS</title>
+  <script src="/static/js/theme.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
+  <link rel="stylesheet" href="/static/css/custom.css" />
+</head>
+
+<body>
+  <div id="sidebar-mount"></div>
+  <div id="page-content" class="page-content">
+
+    <div class="d-flex align-items-center justify-content-between mb-3">
+      <div class="d-flex align-items-center gap-3">
+        <a href="/static/pages/teacher/courses.html" class="btn btn-outline-secondary btn-sm">
+          <i class="bi bi-arrow-left me-1"></i>Back
+        </a>
+        <h1 class="page-title mb-0" id="examTitle">
+          Exam Questions
+        </h1>
+      </div>
+      <div id="editSettingsBtnContainer">
+        <!-- Built dynamically -->
+      </div>
+    </div>
+
+    <!-- Exam info bar -->
+    <div class="content-card mb-3" id="examInfoBar">
+      <div class="d-flex justify-content-center py-2">
+        <div class="spinner-border spinner-border-sm" role="status"></div>
+      </div>
+    </div>
+
+    <!-- Global alert -->
+    <div id="pageAlert" class="alert d-none mb-3" role="alert"></div>
+
+    <!-- Add question buttons -->
+    <div class="d-flex gap-2 mb-3" id="addBtnsRow">
+      <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#mcqModal">
+        <i class="bi bi-plus-circle me-1"></i>Add MCQ
+      </button>
+      <button class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#subjModal">
+        <i class="bi bi-plus-square me-1"></i>Add Subjective
+      </button>
+      <button class="btn btn-success ms-auto btn-sm" id="publishBtn" onclick="publishExam()">
+        <i class="bi bi-send-check me-1"></i>
+        <span id="publishBtnText">Publish Exam</span>
+        <span id="publishSpinner" class="spinner-border spinner-border-sm
+                   d-none ms-1" role="status"></span>
+      </button>
+    </div>
+
+    <!-- Questions list -->
+    <div class="content-card">
+      <div class="d-flex justify-content-between
+                align-items-center mb-3">
+        <span class="small fw-semibold" id="questionCountLabel">Questions</span>
+        <span class="small text-muted">
+          Total marks: <strong id="totalMarksDisplay">—</strong>
+        </span>
+      </div>
+      <div id="questionsList">
+        <div class="text-center text-muted py-4">
+          <div class="spinner-border spinner-border-sm" role="status"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- MODAL: Add MCQ Question -->
+  <div class="modal fade" id="mcqModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Add MCQ Question</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div id="mcqAlert" class="alert d-none" role="alert"></div>
+          <form id="mcqForm" novalidate>
+            <div class="mb-3">
+              <label class="form-label fw-medium">
+                Question Text
+              </label>
+              <textarea class="form-control" id="mcqText" rows="2" required placeholder="Enter the question...">
+            </textarea>
+              <div class="invalid-feedback">Required.</div>
+            </div>
+            <div class="row g-2 mb-3">
+              <div class="col-sm-4">
+                <label class="form-label fw-medium small">
+                  Marks
+                </label>
+                <input type="number" class="form-control" id="mcqMarks" step="0.5" min="0.5" value="1" required />
+              </div>
+              <div class="col-sm-4">
+                <label class="form-label fw-medium small">
+                  Order Index
+                </label>
+                <input type="number" class="form-control" id="mcqOrder" min="0" value="0" />
+              </div>
+            </div>
+
+            <!-- 4 options, radio to mark correct -->
+            <p class="small fw-medium mb-2">
+              Options — select the correct answer:
+            </p>
+            <div class="d-flex flex-column gap-2" id="mcqOptions">
+              <!-- Built dynamically -->
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-primary" id="mcqSubmitBtn" onclick="submitMcq()">
+            <span id="mcqBtnText">Add Question</span>
+            <span id="mcqSpinner" class="spinner-border spinner-border-sm
+                       d-none ms-1" role="status"></span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- MODAL: Add Subjective Question -->
+  <div class="modal fade" id="subjModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Add Subjective Question</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div id="subjAlert" class="alert d-none" role="alert"></div>
+          <form id="subjForm" novalidate>
+            <div class="mb-3">
+              <label class="form-label fw-medium">
+                Question Text
+              </label>
+              <textarea class="form-control" id="subjText" rows="3" required placeholder="Describe the question...">
+            </textarea>
+              <div class="invalid-feedback">Required.</div>
+            </div>
+            <div class="row g-2 mb-3">
+              <div class="col-sm-4">
+                <label class="form-label fw-medium small">
+                  Marks
+                </label>
+                <input type="number" class="form-control" id="subjMarks" step="0.5" min="0.5" value="10" required />
+              </div>
+              <div class="col-sm-4">
+                <label class="form-label fw-medium small">
+                  Order Index
+                </label>
+                <input type="number" class="form-control" id="subjOrder" min="0" value="0" />
+              </div>
+              <div class="col-sm-4">
+                <label class="form-label fw-medium small">
+                  Word Limit
+                  <span class="text-muted">(optional)</span>
+                </label>
+                <input type="number" class="form-control" id="subjWordLimit" min="10" placeholder="e.g. 300" />
+              </div>
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-primary" id="subjSubmitBtn" onclick="submitSubjective()">
+            <span id="subjBtnText">Add Question</span>
+            <span id="subjSpinner" class="spinner-border spinner-border-sm
+                       d-none ms-1" role="status"></span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="/static/js/auth.js"></script>
+  <script src="/static/js/sidebar.js"></script>
+  <script src="/static/js/notifications.js"></script>
+
+  <script>
+    const urlP = new URLSearchParams(window.location.search);
+    const examId = parseInt(urlP.get("exam_id"));
+    let examData = null;
+
+    // ── Build MCQ option rows on modal open ───────────────────────────
+    const mcqModalEl = document.getElementById("mcqModal");
+    if (mcqModalEl) {
+      mcqModalEl.addEventListener("show.bs.modal", function () {
+        console.log("mcqModal show event triggered");
+        const container = document.getElementById("mcqOptions");
+        if (!container) {
+          console.error("mcqOptions container not found!");
+          return;
+        }
+        const labels = ["A", "B", "C", "D"];
+        container.innerHTML = labels.map(label => `
+          <div class="input-group">
+            <div class="input-group-text">
+              <input type="radio" name="correctOption"
+                     value="${label}" id="opt${label}"
+                     class="form-check-input mt-0"
+                     ${label === "A" ? "checked" : ""}/>
+            </div>
+            <span class="input-group-text fw-bold">${label}</span>
+            <input type="text" class="form-control"
+                   id="optText${label}"
+                   placeholder="Option ${label} text"
+                   required/>
+          </div>`).join("");
+      });
+    } else {
+      console.error("#mcqModal not found in DOM.");
+    }
+
+    // ── Build Subjective modal open logging ───────────────────────────
+    const subjModalEl = document.getElementById("subjModal");
+    if (subjModalEl) {
+      subjModalEl.addEventListener("show.bs.modal", function () {
+        console.log("subjModal show event triggered");
+      });
+    } else {
+      console.error("#subjModal not found in DOM.");
+    }
+
+    // ── Auth ready ────────────────────────────────────────────────────
+    (function () {
+      const prev = window.__onAuthReady;
+      window.__onAuthReady = async function (user) {
+        if (typeof prev === "function") await prev(user);
+        if (!examId || isNaN(examId)) {
+          _showPageAlert("No exam ID in URL.", "danger"); return;
+        }
+        await loadExamInfo();
+        await loadQuestions();
+      };
+    })();
+
+    // ── Load exam info bar ────────────────────────────────────────────
+    async function loadExamInfo() {
+      try {
+        examData = await window.apiFetch(
+          `/api/teacher/exams/${examId}`
+        );
+        if (!examData) return;
+
+        document.getElementById("examTitle").textContent =
+          examData.title;
+        document.title = `${examData.title} — EMS`;
+
+        const infoBar = document.getElementById("examInfoBar");
+        infoBar.innerHTML = `
+      <div class="row g-3 align-items-center">
+        <div class="col-12 col-md-8">
+          <div class="d-flex align-items-center gap-2 mb-1">
+            <code class="small">${_esc(examData.course_code)}</code>
+            <span class="badge ${examData.is_published
+            ? 'bg-success' : 'bg-warning text-dark'}">
+              ${examData.is_published ? 'Published' : 'Draft'}
+            </span>
+          </div>
+          <div class="small text-muted">
+            Duration: <strong>${examData.duration_minutes}min</strong>
+            · Negative: <strong>
+              ${examData.negative_marking_factor}×
+            </strong>
+            · Passing: <strong>${examData.passing_marks}</strong>
+          </div>
+          <div class="small text-muted">
+            Start: ${new Date(examData.start_time)
+            .toLocaleString()}
+            · End: ${new Date(examData.end_time)
+            .toLocaleString()}
+          </div>
+        </div>
+        <div class="col-12 col-md-4 text-md-end">
+          <div class="fs-4 fw-bold text-primary">
+            ${examData.total_marks}
+          </div>
+          <div class="small text-muted">Total marks</div>
+        </div>
+      </div>`;
+
+        // Hide add/publish buttons if already published
+        if (examData.is_published) {
+          document.getElementById("editSettingsBtnContainer").innerHTML = ""; // Clear for published
+          document.getElementById("addBtnsRow").innerHTML = `
+        <div class="alert alert-success mb-0 py-2 small w-100">
+          <i class="bi bi-check-circle-fill me-2"></i>
+          This exam is published. Questions cannot be modified.
+          <a href="/static/pages/teacher/gradebook.html?exam_id=${examId}" class="ms-2 alert-link">
+            View Grade Book →
+          </a>
+        </div>`;
+        } else {
+          document.getElementById("editSettingsBtnContainer").innerHTML = `
+            <button class="btn btn-outline-danger btn-sm me-2" onclick="deleteExam()">
+              <i class="bi bi-trash3 me-1"></i>Delete Exam
+            </button>
+            <a href="/static/pages/teacher/exam_create.html?exam_id=${examId}" class="btn btn-outline-primary btn-sm">
+              <i class="bi bi-gear-fill me-1"></i>Edit Settings
+            </a>
+          `;
+        }
+
+      } catch (err) {
+        _showPageAlert(err.detail || "Failed to load exam.", "danger");
+      }
+    }
+
+    // ── Load questions list ───────────────────────────────────────────
+    async function loadQuestions() {
+      const container = document.getElementById("questionsList");
+      try {
+        const data = await window.apiFetch(
+          `/api/teacher/exams/${examId}/questions`
+        );
+        if (!data) return;
+
+        document.getElementById("questionCountLabel").textContent =
+          `${data.total} question${data.total !== 1 ? "s" : ""}`;
+
+        // Refresh total_marks from exam
+        const exam = await window.apiFetch(
+          `/api/teacher/exams/${examId}`
+        );
+        if (exam) {
+          document.getElementById("totalMarksDisplay").textContent =
+            exam.total_marks;
+          examData = exam;
+        }
+
+        if (data.total === 0) {
+          container.innerHTML = `
+        <div class="text-center text-muted py-4">
+          <i class="bi bi-question-circle fs-3 d-block
+                    mb-2 opacity-50"></i>
+          No questions yet. Add MCQ or subjective questions above.
+        </div>`;
+          return;
+        }
+
+        container.innerHTML = data.items.map((q, i) => `
+      <div class="border rounded p-3 mb-2
+                  ${q.question_type === 'mcq'
+            ? 'border-primary-subtle'
+            : 'border-warning-subtle'}">
+        <div class="d-flex justify-content-between
+                    align-items-start gap-2">
+          <div class="flex-fill">
+            <div class="d-flex align-items-center gap-2 mb-1">
+              <span class="badge ${q.question_type === 'mcq'
+            ? 'bg-primary' : 'bg-warning text-dark'}
+                small">
+                ${q.question_type === 'mcq'
+            ? 'MCQ' : 'Subjective'}
+              </span>
+              <span class="small text-muted">
+                Q${i + 1} · ${q.marks} mark${q.marks !== 1
+            ? 's' : ''}
+                ${q.word_limit
+            ? ' · ' + q.word_limit + ' words max' : ''}
+              </span>
+            </div>
+            <p class="mb-2 small fw-medium">
+              ${_esc(q.question_text)}
+            </p>
+            ${q.options.length > 0
+            ? `<div class="d-flex flex-wrap gap-2">
+                   ${q.options.map(o => `
+                     <span class="badge ${o.is_correct
+                ? 'bg-success' : 'bg-light text-dark'}
+                       border small">
+                       ${_esc(o.option_label)}.
+                       ${_esc(o.option_text)}
+                       ${o.is_correct
+                ? '<i class="bi bi-check-lg ms-1"></i>'
+                : ''}
+                     </span>`).join("")}
+                 </div>`
+            : ""}
+          </div>
+          ${!examData?.is_published
+            ? `<button class="btn btn-outline-danger btn-sm
+                              flex-shrink-0"
+                       onclick="deleteQuestion(${q.id})"
+                       title="Delete question">
+                 <i class="bi bi-trash3"></i>
+               </button>`
+            : ""}
+        </div>
+      </div>`).join("");
+
+      } catch (err) {
+        container.innerHTML = `
+      <div class="text-center text-danger py-3 small">
+        <i class="bi bi-exclamation-triangle me-2"></i>
+        ${_esc(err.detail || "Failed to load questions.")}
+      </div>`;
+      }
+    }
+
+    // ── Submit MCQ ────────────────────────────────────────────────────
+    async function submitMcq() {
+      const alertEl = document.getElementById("mcqAlert");
+      const btn = document.getElementById("mcqSubmitBtn");
+      const btnText = document.getElementById("mcqBtnText");
+      const spinner = document.getElementById("mcqSpinner");
+
+      const text = document.getElementById("mcqText").value.trim();
+      const marks = parseFloat(
+        document.getElementById("mcqMarks").value
+      );
+      const order = parseInt(
+        document.getElementById("mcqOrder").value || "0"
+      );
+      const correct = document.querySelector(
+        'input[name="correctOption"]:checked'
+      )?.value;
+
+      if (!text || isNaN(marks) || marks <= 0) {
+        _showAlert(alertEl,
+          "Question text and valid marks are required.", "danger");
+        return;
+      }
+
+      const options = ["A", "B", "C", "D"].map(label => ({
+        option_label: label,
+        option_text: document.getElementById(
+          `optText${label}`
+        ).value.trim(),
+        is_correct: label === correct,
+      }));
+
+      if (options.some(o => !o.option_text)) {
+        _showAlert(alertEl, "All four option texts are required.",
+          "danger");
+        return;
+      }
+
+      _setLoading(btn, btnText, spinner, true, "Adding...");
+      _hideAlert(alertEl);
+
+      try {
+        await window.apiFetch(
+          `/api/teacher/exams/${examId}/questions/mcq`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              question_text: text,
+              marks, order_index: order, options,
+            }),
+          }
+        );
+
+        // Reset and close
+        document.getElementById("mcqForm").reset();
+        document.getElementById("mcqText").value = "";
+        bootstrap.Modal.getInstance(
+          document.getElementById("mcqModal")
+        )?.hide();
+        await loadQuestions();
+
+      } catch (err) {
+        _showAlert(alertEl,
+          err.detail || "Failed to add MCQ.", "danger");
+      } finally {
+        _setLoading(btn, btnText, spinner, false, "Add Question");
+      }
+    }
+
+    // ── Submit Subjective ─────────────────────────────────────────────
+    async function submitSubjective() {
+      const alertEl = document.getElementById("subjAlert");
+      const btn = document.getElementById("subjSubmitBtn");
+      const btnText = document.getElementById("subjBtnText");
+      const spinner = document.getElementById("subjSpinner");
+
+      const text = document.getElementById("subjText")
+        .value.trim();
+      const marks = parseFloat(
+        document.getElementById("subjMarks").value
+      );
+      const order = parseInt(
+        document.getElementById("subjOrder").value || "0"
+      );
+      const wordLimit = document.getElementById("subjWordLimit").value
+        ? parseInt(document.getElementById("subjWordLimit").value)
+        : null;
+
+      if (!text || isNaN(marks) || marks <= 0) {
+        _showAlert(alertEl,
+          "Question text and valid marks are required.", "danger");
+        return;
+      }
+
+      _setLoading(btn, btnText, spinner, true, "Adding...");
+      _hideAlert(alertEl);
+
+      try {
+        await window.apiFetch(
+          `/api/teacher/exams/${examId}/questions/subjective`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              question_text: text,
+              marks,
+              order_index: order,
+              word_limit: wordLimit,
+            }),
+          }
+        );
+
+        document.getElementById("subjForm").reset();
+        bootstrap.Modal.getInstance(
+          document.getElementById("subjModal")
+        )?.hide();
+        await loadQuestions();
+
+      } catch (err) {
+        _showAlert(alertEl,
+          err.detail || "Failed to add question.", "danger");
+      } finally {
+        _setLoading(btn, btnText, spinner, false, "Add Question");
+      }
+    }
+
+    // ── Delete question ───────────────────────────────────────────────
+    async function deleteQuestion(qId) {
+      if (!confirm("Delete this question?")) return;
+      try {
+        await window.apiFetch(
+          `/api/teacher/questions/${qId}`,
+          { method: "DELETE" }
+        );
+        await loadQuestions();
+      } catch (err) {
+        _showPageAlert(
+          err.detail || "Failed to delete question.", "danger"
+        );
+      }
+    }
+
+    // ── Publish exam ──────────────────────────────────────────────────
+    async function publishExam() {
+      console.log("publishExam() triggered for examId:", examId);
+
+      if (!confirm(
+        "Publish this exam? Students will be notified immediately "
+        + "and questions cannot be changed after publishing."
+      )) {
+        console.log("Publication cancelled by user.");
+        return;
+      }
+
+      const btn = document.getElementById("publishBtn");
+      const btnText = document.getElementById("publishBtnText");
+      const spinner = document.getElementById("publishSpinner");
+
+      console.log("Starting publication process...");
+      btn.disabled = true;
+      btnText.textContent = "Publishing...";
+      spinner.classList.remove("d-none");
+
+      try {
+        console.log("Calling API POST /api/teacher/exams/" + examId + "/publish");
+        const data = await window.apiFetch(
+          `/api/teacher/exams/${examId}/publish`,
+          { method: "POST" }
+        );
+        console.log("API Success:", data);
+
+        _showPageAlert(
+          `${data.message} ${data.notified_students || 0} student(s) notified.`,
+          "success"
+        );
+
+        // Wait a bit then refresh to show published state
+        setTimeout(async () => {
+          await loadExamInfo();
+          await loadQuestions();
+        }, 1000);
+
+      } catch (err) {
+        console.error("API Error during publication:", err);
+        const detail = err.detail || err.message || "Failed to publish exam.";
+        _showPageAlert(detail, "danger");
+
+        btn.disabled = false;
+        btnText.textContent = "Publish Exam";
+        spinner.classList.add("d-none");
+      }
+    }
+
+    // ── Utilities ─────────────────────────────────────────────────────
+    function _showPageAlert(msg, type) {
+      const el = document.getElementById("pageAlert");
+      el.className = `alert alert-${type}`;
+      el.textContent = msg;
+      el.classList.remove("d-none");
+      el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+
+    function _showAlert(el, msg, type) {
+      el.className = `alert alert-${type}`;
+      el.textContent = msg;
+      el.classList.remove("d-none");
+    }
+
+    function _hideAlert(el) { el.classList.add("d-none"); }
+
+    function _setLoading(btn, btnText, spinner, on, label) {
+      btn.disabled = on;
+      btnText.textContent = label;
+      spinner.classList.toggle("d-none", !on);
+    }
+
+    async function deleteExam() {
+      if (!confirm("Are you sure you want to delete this exam draft? This action cannot be undone.")) return;
+      try {
+        await window.apiFetch(`/api/teacher/exams/${examId}`, { method: "DELETE" });
+        window.location.href = "/static/pages/teacher/courses.html";
+      } catch (err) {
+        _showPageAlert(err.detail || "Failed to delete exam.", "danger");
+      }
+    }
+
+    function _esc(s) {
+      return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+  </script>
+</body>
+
+</html>
