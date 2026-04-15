@@ -30,9 +30,13 @@ function toggleTheme() {
 
     // Update all theme icon elements on the page
     document.querySelectorAll(".js-theme-icon").forEach(function (el) {
-        el.className = next === "dark"
-            ? "bi bi-sun-fill js-theme-icon"
-            : "bi bi-moon-fill js-theme-icon";
+        if (next === "dark") {
+            el.classList.remove("bi-moon-fill");
+            el.classList.add("bi-sun-fill");
+        } else {
+            el.classList.remove("bi-sun-fill");
+            el.classList.add("bi-moon-fill");
+        }
     });
 }
 

@@ -24,6 +24,9 @@ from models import (
     Branch, Exam, Question, MCQOption,
     QuestionType, CourseMode, User,
 )
+from core.exceptions import (
+    NotFoundException, ForbiddenException, ValidationException, ConflictException
+)
 
 
 # ── Assigned courses ──────────────────────────────────────────────
@@ -35,49 +38,38 @@ async def get_assigned_courses(
     """
     Returns all courses assigned to the given teacher,
     including enrollment count and branch code.
-
-    Returns a list of dicts (not ORM objects) for easy
-    serialisation.
     """
     result = await db.execute(
         select(
             Course,
             Branch.code.label("branch_code"),
             CourseAssignment.assigned_at,
+            func.count(CourseEnrollment.id).label("enrolled_count")
         )
-        .join(
-            CourseAssignment,
-            CourseAssignment.course_id == Course.id
-        )
+        .join(CourseAssignment, CourseAssignment.course_id == Course.id)
         .join(Branch, Course.branch_id == Branch.id)
+        .outerjoin(CourseEnrollment, CourseEnrollment.course_id == Course.id)
         .where(CourseAssignment.teacher_id == teacher_id)
+        .group_by(Course.id, Branch.code, CourseAssignment.assigned_at)
         .order_by(CourseAssignment.assigned_at.desc())
     )
     rows = result.all()
 
-    courses = []
-    for course, branch_code, assigned_at in rows:
-        # Enrollment count
-        enroll_r = await db.execute(
-            select(func.count(CourseEnrollment.id))
-            .where(CourseEnrollment.course_id == course.id)
-        )
-        enrolled = enroll_r.scalar_one()
-
-        courses.append({
-            "id":                course.id,
-            "course_code":       course.course_code,
-            "name":              course.name,
-            "description":       course.description,
-            "branch_code":       branch_code,
-            "year":              course.year,
-            "mode":              course.mode.value,
-            "is_active":         course.is_active,
-            "enrolled_students": enrolled,
-            "assigned_at":       assigned_at,
-        })
-
-    return courses
+    return [
+        {
+            "id":                row.Course.id,
+            "course_code":       row.Course.course_code,
+            "name":              row.Course.name,
+            "description":       row.Course.description,
+            "branch_code":       row.branch_code,
+            "year":              row.Course.year,
+            "mode":              row.Course.mode.value,
+            "is_active":         row.Course.is_active,
+            "enrolled_students": row.enrolled_count,
+            "assigned_at":       row.assigned_at,
+        }
+        for row in rows
+    ]
 
 
 async def verify_teacher_owns_course(
@@ -109,37 +101,21 @@ async def create_exam(
     title: str,
     description: Optional[str],
     duration_minutes: int,
-    negative_marking_factor: float,
-    passing_marks: float,
+    negative_marking_factor: Decimal,
+    passing_marks: Decimal,
     start_time: datetime,
     end_time: datetime,
-) -> tuple[Optional[Exam], Optional[str]]:
+) -> Exam:
     """
     Creates a new exam for a course.
-
-    Validates:
-      - Teacher is assigned to the course.
-      - Course exists and is active.
-      - No other exam for this course overlaps the time window.
-
-    total_marks starts at 0.00 and is recomputed as questions
-    are added via _recompute_total_marks().
-
-    Returns:
-        (Exam, None)         on success
-        (None, error_string) on failure
-
-    Does NOT commit — caller commits.
+    Raises exceptions on failure.
     """
     # Verify teacher owns course
     owns = await verify_teacher_owns_course(
         db, teacher_id, course_id
     )
     if not owns:
-        return None, (
-            "You are not assigned to this course and cannot "
-            "create exams for it."
-        )
+        raise ForbiddenException("You are not assigned to this course and cannot create exams for it.")
 
     # Verify course exists and is active
     course_r = await db.execute(
@@ -147,9 +123,9 @@ async def create_exam(
     )
     course = course_r.scalar_one_or_none()
     if course is None:
-        return None, f"Course {course_id} not found."
+        raise NotFoundException(f"Course {course_id} not found.")
     if not course.is_active:
-        return None, "Cannot create exams for an inactive course."
+        raise ForbiddenException("Cannot create exams for an inactive course.")
 
     # Check for overlapping exams on the same course
     overlap_r = await db.execute(
@@ -163,11 +139,9 @@ async def create_exam(
     )
     overlap = overlap_r.scalars().first()
     if overlap is not None:
-        return None, (
-            f"Exam '{overlap.title}' already exists for this "
-            f"course in the time window "
-            f"{overlap.start_time} – {overlap.end_time}. "
-            "Please choose a non-overlapping time window."
+        raise ConflictException(
+            f"Exam '{overlap.title}' already exists for this course in the time window "
+            f"{overlap.start_time} – {overlap.end_time}."
         )
 
     exam = Exam(
@@ -176,11 +150,9 @@ async def create_exam(
         title=title,
         description=description,
         duration_minutes=duration_minutes,
-        negative_marking_factor=Decimal(
-            str(negative_marking_factor)
-        ),
+        negative_marking_factor=negative_marking_factor,
         total_marks=Decimal("0.00"),
-        passing_marks=Decimal(str(passing_marks)),
+        passing_marks=passing_marks,
         start_time=start_time,
         end_time=end_time,
         is_published=False,
@@ -189,7 +161,7 @@ async def create_exam(
     db.add(exam)
     await db.flush()
     await db.refresh(exam)
-    return exam, None
+    return exam
 
 
 async def get_exam_by_id(
@@ -231,15 +203,19 @@ async def list_exams_for_teacher(
     """
     Returns paginated exams created by the teacher.
     Optionally filtered by course_id and published state.
-
-    Returns:
-        (exam_dicts, total_count)
     """
     base_q = (
-        select(Exam, Course.course_code)
+        select(
+            Exam,
+            Course.course_code,
+            func.count(Question.id).label("question_count")
+        )
         .join(Course, Exam.course_id == Course.id)
+        .outerjoin(Question, Question.exam_id == Exam.id)
         .where(Exam.created_by == teacher_id)
+        .group_by(Exam.id, Course.course_code)
     )
+    
     count_q = (
         select(func.count(Exam.id))
         .where(Exam.created_by == teacher_id)
@@ -250,12 +226,8 @@ async def list_exams_for_teacher(
         count_q = count_q.where(Exam.course_id == course_id)
 
     if is_published is not None:
-        base_q  = base_q.where(
-            Exam.is_published == is_published
-        )
-        count_q = count_q.where(
-            Exam.is_published == is_published
-        )
+        base_q  = base_q.where(Exam.is_published == is_published)
+        count_q = count_q.where(Exam.is_published == is_published)
 
     total_r = await db.execute(count_q)
     total   = total_r.scalar_one()
@@ -268,15 +240,10 @@ async def list_exams_for_teacher(
     )
     rows = rows_r.all()
 
-    exams = []
-    for exam, course_code in rows:
-        q_count_r = await db.execute(
-            select(func.count(Question.id))
-            .where(Question.exam_id == exam.id)
-        )
-        exams.append(
-            _exam_to_dict(exam, course_code, q_count_r.scalar_one())
-        )
+    exams = [
+        _exam_to_dict(row.Exam, row.course_code, row.question_count)
+        for row in rows
+    ]
 
     return exams, total
 
@@ -286,36 +253,24 @@ async def update_exam(
     exam_id: int,
     teacher_id: int,
     **kwargs,
-) -> tuple[bool, str]:
+) -> None:
     """
     Updates mutable fields of an exam.
-    An exam that has been published (is_published=True) cannot
-    be updated — teacher must unpublish first (not supported
-    in this system — once published it is final).
-
-    Only non-None values in kwargs are applied.
-
-    Returns:
-        (True, success_message)
-        (False, error_string)
-
-    Does NOT commit — caller commits.
+    An exam that has been published (is_published=True) cannot be updated.
+    Raises exceptions on failure.
     """
     exam_r = await db.execute(
         select(Exam).where(Exam.id == exam_id)
     )
     exam = exam_r.scalar_one_or_none()
     if exam is None:
-        return False, f"Exam {exam_id} not found."
+        raise NotFoundException(f"Exam {exam_id} not found.")
 
     if exam.created_by != teacher_id:
-        return False, "You can only edit your own exams."
+        raise ForbiddenException("You can only edit your own exams.")
 
     if exam.is_published:
-        return False, (
-            "This exam has already been published and cannot "
-            "be edited."
-        )
+        raise ValidationException("This exam has already been published and cannot be edited.")
 
     allowed = {
         "title", "description", "duration_minutes",
@@ -340,39 +295,27 @@ async def update_exam(
         )
         overlap = overlap_r.scalars().first()
         if overlap is not None:
-            return False, (
-                f"Cannot update times: overlaps with exam "
-                f"'{overlap.title}' ({overlap.start_time} – "
-                f"{overlap.end_time})."
+            raise ConflictException(
+                f"Cannot update times: overlaps with exam '{overlap.title}' "
+                f"({overlap.start_time} – {overlap.end_time})."
             )
 
     for field, value in kwargs.items():
         if field in allowed and value is not None:
-            if field == "negative_marking_factor":
-                value = Decimal(str(value))
-            if field == "passing_marks":
-                value = Decimal(str(value))
             setattr(exam, field, value)
 
     db.add(exam)
     await db.flush()
-    return True, "Exam updated successfully."
 
 
 async def delete_exam(
     db: AsyncSession,
     exam_id: int,
     teacher_id: int,
-) -> tuple[bool, str]:
+) -> None:
     """
-    Deletes an exam. Only allowed if the exam has not been
-    published and has no student attempts.
-
-    Returns:
-        (True, success_message)
-        (False, error_string)
-
-    Does NOT commit — caller commits.
+    Deletes an exam. Only allowed if the exam has not been published and has no student attempts.
+    Raises exceptions on failure.
     """
     from models import ExamAttempt
 
@@ -381,16 +324,13 @@ async def delete_exam(
     )
     exam = exam_r.scalar_one_or_none()
     if exam is None:
-        return False, f"Exam {exam_id} not found."
+        raise NotFoundException(f"Exam {exam_id} not found.")
 
     if exam.created_by != teacher_id:
-        return False, "You can only delete your own exams."
+        raise ForbiddenException("You can only delete your own exams.")
 
     if exam.is_published:
-        return False, (
-            "Cannot delete a published exam. "
-            "Published exams are permanent."
-        )
+        raise ValidationException("Cannot delete a published exam. Published exams are permanent.")
 
     # Check for any attempts
     attempt_r = await db.execute(
@@ -399,51 +339,33 @@ async def delete_exam(
     )
     attempt_count = attempt_r.scalar_one()
     if attempt_count > 0:
-        return False, (
-            f"Cannot delete exam with {attempt_count} "
-            "existing student attempt(s)."
-        )
+        raise ConflictException(f"Cannot delete exam with {attempt_count} existing student attempt(s).")
 
     await db.delete(exam)
     await db.flush()
-    return True, "Exam deleted successfully."
 
 
 async def publish_exam(
     db: AsyncSession,
     exam_id: int,
     teacher_id: int,
-) -> tuple[bool, str]:
+) -> None:
     """
-    Publishes an exam making it visible to enrolled students.
-
-    Pre-publish validation:
-      - Exam must have at least 1 question.
-      - Exam must not already be published.
-      - start_time must be in the future.
-      - passing_marks must be <= total_marks.
-
-    On success:
-      - Sets is_published = True and published_at = now(UTC).
-
-    Returns:
-        (True, success_message)
-        (False, error_string)
-
-    Does NOT commit — caller commits.
+    Publishes an exam.
+    Raises exceptions on failure.
     """
     exam_r = await db.execute(
         select(Exam).where(Exam.id == exam_id)
     )
     exam = exam_r.scalar_one_or_none()
     if exam is None:
-        return False, f"Exam {exam_id} not found."
+        raise NotFoundException(f"Exam {exam_id} not found.")
 
     if exam.created_by != teacher_id:
-        return False, "You can only publish your own exams."
+        raise ForbiddenException("You can only publish your own exams.")
 
     if exam.is_published:
-        return False, "Exam is already published."
+        raise ConflictException("Exam is already published.")
 
     # Check question count
     q_count_r = await db.execute(
@@ -452,12 +374,9 @@ async def publish_exam(
     )
     q_count = q_count_r.scalar_one()
     if q_count == 0:
-        return False, (
-            "Cannot publish an exam with no questions. "
-            "Add at least one question first."
-        )
+        raise ValidationException("Cannot publish an exam with no questions. Add at least one question first.")
 
-    # Check start_time is in the future (with 1 min grace period)
+    # Check start_time is in the future
     now = datetime.now(timezone.utc)
     from datetime import timedelta
     start = exam.start_time
@@ -465,16 +384,12 @@ async def publish_exam(
         start = start.replace(tzinfo=timezone.utc)
     
     if start < (now - timedelta(minutes=1)):
-        return False, (
-            "Cannot publish an exam whose start time has "
-            "already passed. Update the start time first."
-        )
+        raise ValidationException("Cannot publish an exam whose start time has already passed. Update the start time first.")
 
     # Check passing_marks <= total_marks
     if exam.passing_marks > exam.total_marks:
-        return False, (
-            f"passing_marks ({exam.passing_marks}) exceeds "
-            f"total_marks ({exam.total_marks}). "
+        raise ValidationException(
+            f"passing_marks ({exam.passing_marks}) exceeds total_marks ({exam.total_marks}). "
             "Update passing_marks before publishing."
         )
 
@@ -482,7 +397,6 @@ async def publish_exam(
     exam.published_at = datetime.now(timezone.utc)
     db.add(exam)
     await db.flush()
-    return True, "Exam published successfully."
 
 
 # ── Question management ───────────────────────────────────────────
@@ -512,44 +426,27 @@ async def add_mcq_question(
     exam_id: int,
     teacher_id: int,
     question_text: str,
-    marks: float,
+    marks: Decimal,
     order_index: int,
     options: list[dict],
-) -> tuple[Optional[Question], Optional[str]]:
+) -> Question:
     """
     Adds an MCQ question to an exam.
-
-    Validates:
-      - Teacher owns exam.
-      - Exam is not yet published.
-      - Exactly one option is marked correct.
-      - No duplicate option labels.
-
-    On success: recomputes exam.total_marks.
-
-    Returns:
-        (Question, None)         on success
-        (None, error_string)     on failure
-
-    Does NOT commit — caller commits.
+    Raises exceptions on failure.
     """
     exam = await verify_teacher_owns_exam(
         db, teacher_id, exam_id
     )
     if exam is None:
-        return None, (
-            "Exam not found or you do not own this exam."
-        )
+        raise NotFoundException(f"Exam {exam_id} not found or you do not own this exam.")
     if exam.is_published:
-        return None, (
-            "Cannot add questions to a published exam."
-        )
+        raise ValidationException("Cannot add questions to a published exam.")
 
     question = Question(
         exam_id=exam_id,
         question_text=question_text,
         question_type=QuestionType.mcq,
-        marks=Decimal(str(marks)),
+        marks=marks,
         order_index=order_index,
         word_limit=None,
     )
@@ -570,7 +467,7 @@ async def add_mcq_question(
     # Recompute exam total_marks
     await _recompute_total_marks(db, exam_id)
 
-    return question, None
+    return question
 
 
 async def add_subjective_question(
@@ -578,42 +475,27 @@ async def add_subjective_question(
     exam_id: int,
     teacher_id: int,
     question_text: str,
-    marks: float,
+    marks: Decimal,
     order_index: int,
     word_limit: Optional[int],
-) -> tuple[Optional[Question], Optional[str]]:
+) -> Question:
     """
     Adds a subjective question to an exam.
-
-    Validates:
-      - Teacher owns exam.
-      - Exam is not yet published.
-
-    On success: recomputes exam.total_marks.
-
-    Returns:
-        (Question, None)         on success
-        (None, error_string)     on failure
-
-    Does NOT commit — caller commits.
+    Raises exceptions on failure.
     """
     exam = await verify_teacher_owns_exam(
         db, teacher_id, exam_id
     )
     if exam is None:
-        return None, (
-            "Exam not found or you do not own this exam."
-        )
+        raise NotFoundException(f"Exam {exam_id} not found or you do not own this exam.")
     if exam.is_published:
-        return None, (
-            "Cannot add questions to a published exam."
-        )
+        raise ValidationException("Cannot add questions to a published exam.")
 
     question = Question(
         exam_id=exam_id,
         question_text=question_text,
         question_type=QuestionType.subjective,
-        marks=Decimal(str(marks)),
+        marks=marks,
         order_index=order_index,
         word_limit=word_limit,
     )
@@ -623,7 +505,7 @@ async def add_subjective_question(
     # Recompute exam total_marks
     await _recompute_total_marks(db, exam_id)
 
-    return question, None
+    return question
 
 
 async def get_exam_questions(
@@ -651,7 +533,7 @@ async def get_exam_questions(
             "exam_id":       q.exam_id,
             "question_text": q.question_text,
             "question_type": q.question_type.value,
-            "marks":         float(q.marks),
+            "marks":         q.marks,
             "order_index":   q.order_index,
             "word_limit":    q.word_limit,
             "options":       [],
@@ -683,17 +565,11 @@ async def delete_question(
     db: AsyncSession,
     question_id: int,
     teacher_id: int,
-) -> tuple[bool, str]:
+) -> None:
     """
     Deletes a question from an exam.
     Only allowed if the exam is not yet published.
-    Recomputes total_marks after deletion.
-
-    Returns:
-        (True, success_message)
-        (False, error_string)
-
-    Does NOT commit — caller commits.
+    Raises exceptions on failure.
     """
     # Find question
     q_r = await db.execute(
@@ -701,29 +577,23 @@ async def delete_question(
     )
     question = q_r.scalar_one_or_none()
     if question is None:
-        return False, f"Question {question_id} not found."
+        raise NotFoundException(f"Question {question_id} not found.")
 
     # Verify teacher owns the exam
     exam = await verify_teacher_owns_exam(
         db, teacher_id, question.exam_id
     )
     if exam is None:
-        return False, (
-            "Exam not found or you do not own this exam."
-        )
+        raise ForbiddenException("Exam not found or you do not own this exam.")
     if exam.is_published:
-        return False, (
-            "Cannot delete questions from a published exam."
-        )
+        raise ValidationException("Cannot delete questions from a published exam.")
 
     exam_id = question.exam_id
     await db.delete(question)
     await db.flush()
 
-    # Recompute total_marks
+    # Recompute exam total_marks
     await _recompute_total_marks(db, exam_id)
-
-    return True, "Question deleted successfully."
 
 
 # ── Internal helpers ──────────────────────────────────────────────
@@ -769,11 +639,9 @@ def _exam_to_dict(
         "title":                   exam.title,
         "description":             exam.description,
         "duration_minutes":        exam.duration_minutes,
-        "negative_marking_factor": float(
-            exam.negative_marking_factor
-        ),
-        "total_marks":             float(exam.total_marks),
-        "passing_marks":           float(exam.passing_marks),
+        "negative_marking_factor": exam.negative_marking_factor,
+        "total_marks":             exam.total_marks,
+        "passing_marks":           exam.passing_marks,
         "start_time":              ensure_utc(exam.start_time),
         "end_time":                ensure_utc(exam.end_time),
         "is_published":            exam.is_published,

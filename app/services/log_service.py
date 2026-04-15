@@ -8,10 +8,12 @@ These functions never raise — errors are swallowed so a logging
 failure never blocks a user-facing operation.
 """
 
+import logging
+import sys
 from typing import Optional, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import SystemLog, AuditLog, SystemLogEventType
+from models import SystemLog, AuditLog, SystemLogEventType, LogLevel
 
 
 async def write_system_log(
@@ -20,6 +22,7 @@ async def write_system_log(
     actor_id: int,
     description: str,
     metadata: Optional[dict] = None,
+    level: LogLevel = LogLevel.INFO,
 ) -> None:
     """
     Appends a row to system_logs.
@@ -31,8 +34,9 @@ async def write_system_log(
         metadata:    Optional dict stored as JSON for extra context.
                      e.g. {"exam_id": 12, "course_id": 3}
                      e.g. {"count": 60, "batch": "22", "branch": "CSE"}
+        level:       INFO, WARNING, or ERROR.
 
-    Never raises — errors are caught and silently ignored.
+    Never raises — errors are caught and logged to stderr.
     Does NOT commit — caller commits via get_db() transaction.
     """
     try:
@@ -40,12 +44,14 @@ async def write_system_log(
             event_type=event_type,
             actor_id=actor_id,
             description=description,
-            metadata=metadata,
+            log_metadata=metadata,
+            level=level,
         )
         db.add(log)
         await db.flush()
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"CRITICAL: Failed to write system log: {e}", file=sys.stderr)
+        logging.error(f"System Log Failure: {e}", exc_info=True)
 
 
 async def write_audit_log(
@@ -56,6 +62,7 @@ async def write_audit_log(
     ip_address: str,
     target_id: Optional[Any] = None,
     details: Optional[dict] = None,
+    level: LogLevel = LogLevel.INFO,
 ) -> None:
     """
     Appends a row to audit_logs.
@@ -63,17 +70,13 @@ async def write_audit_log(
     Args:
         admin_id:    PK of the admin who performed the action.
         action:      UPPER_SNAKE_CASE action name.
-                     e.g. "CREATE_USER", "BULK_CREATE_STUDENTS",
-                          "DEACTIVATE_USER", "FORCE_PASSWORD_RESET"
         target_type: "user", "course", "exam", "enrollment", "assignment"
         ip_address:  Client IP from the request.
         target_id:   PK of the affected record (stored as string).
-                     Can be None for bulk operations with no single target.
         details:     Full context dict stored as JSON.
-                     e.g. {"email": "22CSE001@se.clg.ac.in",
-                            "batch": "22", "branch": "CSE"}
+        level:       INFO, WARNING, or ERROR.
 
-    Never raises — errors are caught and silently ignored.
+    Never raises — errors are caught and logged to stderr.
     Does NOT commit — caller commits via get_db() transaction.
     """
     try:
@@ -84,11 +87,13 @@ async def write_audit_log(
             target_id=str(target_id) if target_id is not None else None,
             details=details,
             ip_address=ip_address,
+            level=level,
         )
         db.add(log)
         await db.flush()
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"CRITICAL: Failed to write audit log: {e}", file=sys.stderr)
+        logging.error(f"Audit Log Failure: {e}", exc_info=True)
 
 from sqlalchemy import select, func, or_
 from models import SystemLog, AuditLog, SystemLogEventType

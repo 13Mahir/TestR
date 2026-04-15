@@ -18,6 +18,9 @@ from core.security import (
     create_refresh_token,
     hash_password,
 )
+from core.exceptions import (
+    NotFoundException, ForbiddenException, ValidationException, ConflictException, SystemException
+)
 from models import (User, ActiveSession, IPLog, UserRole,
                     StudentProfile, Branch, School)
 from utils.email_validator import (
@@ -58,8 +61,12 @@ async def log_ip_event(
         )
         db.add(entry)
         await db.flush()   # write within current transaction, no commit yet
-    except Exception:
-        pass               # logging must never crash the caller
+    except Exception as e:
+        import sys
+        import logging
+        print(f"CRITICAL: Failed to log IP event: {e}", file=sys.stderr)
+        logging.error(f"IP Log Failure for {email_attempted}: {e}", exc_info=True)
+
 
 
 # ── Session management ────────────────────────────────────────────────────────
@@ -179,18 +186,13 @@ async def change_user_password(
 ) -> tuple[bool, str]:
     """
     Changes a user's password after verifying the current one.
-
-    Returns:
-        (True, "Password changed successfully.") on success.
-        (False, "<reason>") on failure — caller raises HTTP error.
-
-    Side effects on success:
-        - Updates user.password_hash
-        - Sets user.force_password_reset = False
-        - Flushes (caller commits)
+    Returns (success, message) for the router.
     """
     if not verify_password(current_password, user.password_hash):
         return False, "Current password is incorrect."
+
+    if len(new_password) < 8:
+        return False, "New password must be at least 8 characters."
 
     if current_password == new_password:
         return False, "New password must differ from the current password."
@@ -199,7 +201,6 @@ async def change_user_password(
     user.force_password_reset = False
     db.add(user)
     await db.flush()
-
     return True, "Password changed successfully."
 
 # ── Single user creation ──────────────────────────────────────────────────────
@@ -209,32 +210,26 @@ async def create_single_user(
     email: str,
     password: str,
     created_by_id: int,
-) -> tuple[Optional[User], Optional[str]]:
+) -> User:
     """
     Creates a single user (admin, teacher, or student) from an email
     and password. Role and name are derived from the email pattern.
-
-    For students: also creates the student_profiles row and validates
-    that the branch_code in the email exists in the branches table.
-
-    Returns:
-        (User, None)         on success
-        (None, error_string) on failure
-
-    Does NOT commit — caller commits.
-    Does NOT write logs — caller writes logs after this returns.
+    Raises exceptions on failure.
     """
+    if len(password) < 8:
+        raise ValidationException("Password must be at least 8 characters.")
+
     # Parse email to determine role and extract components
     parsed = parse_email(email)
     if not parsed.is_valid:
-        return None, f"Invalid email format: {parsed.error}"
+        raise ValidationException(f"Invalid email format: {parsed.error}")
 
     # Check for duplicate email
     existing = await db.execute(
         select(User).where(User.email == email)
     )
     if existing.scalar_one_or_none() is not None:
-        return None, f"Email already exists: {email}"
+        raise ConflictException(f"Email already exists: {email}")
 
     # Build user object
     user = User(
@@ -258,7 +253,7 @@ async def create_single_user(
         )
         branch = branch_result.scalar_one_or_none()
         if branch is None:
-            return None, (
+            raise NotFoundException(
                 f"Branch code '{parsed.branch_code}' does not exist. "
                 f"Add it via the branches table first."
             )
@@ -269,11 +264,7 @@ async def create_single_user(
         )
         school = school_result.scalar_one_or_none()
         if school is None or school.code != parsed.school_code:
-            return None, (
-                f"School code '{parsed.school_code}' does not match "
-                f"the school for branch '{parsed.branch_code}'."
-            )
-
+            raise ValidationException(f"School code '{parsed.school_code}' does not match branch school.")
         profile = StudentProfile(
             user_id=user.id,
             batch_year=parsed.batch_year,
@@ -284,9 +275,8 @@ async def create_single_user(
         await db.flush()
 
     # Refresh user to load server-set defaults (created_at, etc.)
-    # after flush — avoids MissingGreenlet from expired-attribute lazy load
     await db.refresh(user)
-    return user, None
+    return user
 
 
 # ── Bulk student creation ─────────────────────────────────────────────────────
@@ -340,6 +330,29 @@ async def bulk_create_students(
     errors  = []
 
     created_ids = []
+    # 1. Pre-generate all candidate emails to check existence in bulk
+    email_to_roll = {}
+    for roll in range(roll_start, roll_end + 1):
+        roll_str = f"{roll:03d}"
+        try:
+            email = build_student_email(
+                batch_year=batch_year,
+                branch_code=branch_code,
+                roll_number=roll_str,
+                school_code=school.code,
+            )
+            email_to_roll[email] = roll_str
+        except ValueError:
+            # Errors will be caught again in the main loop
+            pass
+
+    # 2. Bulk check existence
+    existing_r = await db.execute(
+        select(User.email).where(User.email.in_(email_to_roll.keys()))
+    )
+    existing_emails = {r[0] for r in existing_r.all()}
+
+    # 3. Creation loop
     for roll in range(roll_start, roll_end + 1):
         roll_str = f"{roll:03d}"
         try:
@@ -354,11 +367,7 @@ async def bulk_create_students(
             errors.append(f"Roll {roll_str}: {str(e)}")
             continue
 
-        # Check for duplicate
-        existing = await db.execute(
-            select(User.id).where(User.email == email)
-        )
-        if existing.scalar_one_or_none() is not None:
+        if email in existing_emails:
             skipped += 1
             continue
 
@@ -462,16 +471,35 @@ async def bulk_create_teachers_from_csv(
 
     password_hash = hash_password(default_password)
 
-    for i, row in enumerate(rows, start=2):  # start=2: row 1 is header
-        # Extract and strip values (handle both cases of column names)
+    # 1. Pre-generate candidate emails for bulk check
+    email_to_row = {}
+    for i, row in enumerate(rows, start=2):
+        first = (row.get("first_name") or row.get("First_name") or "").strip()
+        last  = (row.get("last_name")  or row.get("Last_name")  or "").strip()
+        if first and last:
+            try:
+                email = build_teacher_email(first, last)
+                email_to_row[email] = i
+            except ValueError:
+                pass
+
+    # 2. Bulk check existence
+    if email_to_row:
+        existing_r = await db.execute(
+            select(User.email).where(User.email.in_(email_to_row.keys()))
+        )
+        existing_emails = {r[0] for r in existing_r.all()}
+    else:
+        existing_emails = set()
+
+    # 3. Creation loop
+    for i, row in enumerate(rows, start=2):
         first = (row.get("first_name") or row.get("First_name") or "").strip()
         last  = (row.get("last_name")  or row.get("Last_name")  or "").strip()
 
         if not first or not last:
             failed += 1
-            errors.append(
-                f"Row {i}: first_name and last_name must not be empty."
-            )
+            errors.append(f"Row {i}: first_name and last_name must not be empty.")
             continue
 
         try:
@@ -481,11 +509,7 @@ async def bulk_create_teachers_from_csv(
             errors.append(f"Row {i} ({first} {last}): {str(e)}")
             continue
 
-        # Check for duplicate
-        existing = await db.execute(
-            select(User.id).where(User.email == email)
-        )
-        if existing.scalar_one_or_none() is not None:
+        if email in existing_emails:
             skipped += 1
             continue
 

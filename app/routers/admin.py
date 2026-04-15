@@ -72,15 +72,22 @@ from services.log_service import (
 )
 
 
-from services.school_service import list_schools_with_branches
+from services.school_service import (
+    list_schools_with_branches,
+    create_school,
+    create_branch,
+)
 from schemas.admin import (
     PasswordResetTokenOut,
+    ResetPasswordRequest,
     SystemLogOut,
     SystemLogListResponse,
     AuditLogOut,
     AuditLogListResponse,
     SchoolWithBranchesOut,
     BranchOut,
+    SchoolCreateRequest,
+    BranchCreateRequest,
 )
 from models import SystemLog, AuditLog
 
@@ -104,6 +111,76 @@ async def get_schools_and_branches(
     """
     schools = await list_schools_with_branches(db)
     return [SchoolWithBranchesOut.model_validate(s) for s in schools]
+
+
+# ── POST /api/admin/schools ──────────────────────────────────────────────────
+
+@router.post(
+    "/schools",
+    response_model=SchoolWithBranchesOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a new school.",
+)
+async def create_new_school(
+    body:    SchoolCreateRequest,
+    request: Request,
+    db:      AsyncSession = Depends(get_db),
+    admin:   User         = Depends(get_active_admin),
+) -> SchoolWithBranchesOut:
+    """Creates a new school. Admin only."""
+    ip = _get_ip(request)
+    school = await create_school(db=db, code=body.code, name=body.name)
+    
+    await write_audit_log(
+        db=db,
+        admin_id=admin.id,
+        action="CREATE_SCHOOL",
+        target_type="school",
+        target_id=str(school.id),
+        ip_address=ip,
+        details={"code": body.code, "name": body.name},
+    )
+    await db.commit()
+    # Eager load empty branches for response
+    from sqlalchemy.orm import selectinload
+    from sqlalchemy import select
+    from models import School
+    stmt = select(School).options(selectinload(School.branches)).where(School.id == school.id)
+    school = (await db.execute(stmt)).scalar_one()
+    return SchoolWithBranchesOut.model_validate(school)
+
+
+# ── POST /api/admin/branches ─────────────────────────────────────────────────
+
+@router.post(
+    "/branches",
+    response_model=BranchOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a new branch for a school.",
+)
+async def create_new_branch(
+    body:    BranchCreateRequest,
+    request: Request,
+    db:      AsyncSession = Depends(get_db),
+    admin:   User         = Depends(get_active_admin),
+) -> BranchOut:
+    """Creates a new branch. Admin only."""
+    ip = _get_ip(request)
+    branch = await create_branch(
+        db=db, school_id=body.school_id, code=body.code, name=body.name
+    )
+    
+    await write_audit_log(
+        db=db,
+        admin_id=admin.id,
+        action="CREATE_BRANCH",
+        target_type="branch",
+        target_id=str(branch.id),
+        ip_address=ip,
+        details={"school_id": body.school_id, "code": body.code, "name": body.name},
+    )
+    await db.commit()
+    return BranchOut.model_validate(branch)
 
 
 
@@ -184,18 +261,12 @@ async def create_user_single(
     """
     ip = _get_ip(request)
 
-    user, error = await create_single_user(
+    user = await create_single_user(
         db=db,
         email=body.email,
         password=body.password,
         created_by_id=admin.id,
     )
-
-    if error:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=error,
-        )
 
     # Notification
     from services.notification_service import create_notification
@@ -228,6 +299,7 @@ async def create_user_single(
         details={"email": user.email, "role": user.role.value},
     )
 
+    await db.commit()
     return UserOut.model_validate(user)
 
 
@@ -329,6 +401,8 @@ async def bulk_create_students_endpoint(
         f"{skipped} already existed (skipped), {failed} failed "
         f"out of {total_attempted} attempted."
     )
+
+    await db.commit()
 
     return BulkCreateResult(
         created=created,
@@ -459,6 +533,8 @@ async def bulk_create_teachers_endpoint(
         f"{skipped} already existed (skipped), {failed} failed."
     )
 
+    await db.commit()
+
     return BulkCreateResult(
         created=created,
         skipped=skipped,
@@ -527,6 +603,8 @@ async def bulk_deactivate_endpoint(
            " (all branches)")
     )
 
+    await db.commit()
+
     return BulkDeactivateResult(
         deactivated=count,
         message=f"Deactivated {count} student account(s) for {scope}.",
@@ -589,6 +667,8 @@ async def bulk_activate_endpoint(
         + (f" branch {body.branch_code}" if body.branch_code else
            " (all branches)")
     )
+
+    await db.commit()
 
     return BulkActivateResult(
         activated=count,
@@ -673,6 +753,8 @@ async def force_password_reset(
         },
     )
 
+    await db.commit()
+
     return PasswordResetTokenOut(
         user_id=user_id,
         user_email=target_user.email,
@@ -693,8 +775,7 @@ async def force_password_reset(
     summary="Apply a password reset token (used by the reset page).",
 )
 async def consume_reset_token(
-    token:        str = Query(..., description="The reset token string"),
-    new_password: str = Query(..., min_length=8),
+    body:         ResetPasswordRequest,
     db:           AsyncSession = Depends(get_db),
 ) -> dict:
     """
@@ -704,14 +785,11 @@ async def consume_reset_token(
 
     Called by the password reset page when user submits their new
     password using the token the admin shared with them.
-
-    Returns 400 on invalid/expired/used token.
-    Returns 200 with {"message": "..."} on success.
     """
     success, message = await consume_password_reset_token(
         db=db,
-        raw_token=token,
-        new_password=new_password,
+        raw_token=body.token,
+        new_password=body.new_password,
     )
 
     if not success:
@@ -719,6 +797,8 @@ async def consume_reset_token(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=message,
         )
+
+    await db.commit()
 
     return {"message": message}
 
@@ -926,7 +1006,7 @@ async def create_course_endpoint(
     """
     ip = _get_ip(request)
 
-    course, error = await create_course(
+    course = await create_course(
         db=db,
         course_code=body.course_code,
         name=body.name,
@@ -936,12 +1016,6 @@ async def create_course_endpoint(
         mode=body.mode,
         created_by_id=admin.id,
     )
-
-    if error:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=error,
-        )
 
     # Capture ORM attributes as plain values before further DB ops
     # expire the session state (MissingGreenlet prevention)
@@ -982,6 +1056,8 @@ async def create_course_endpoint(
             "mode":        body.mode,
         },
     )
+
+    await db.commit()
 
     return CourseOut(
         id=c_id,
@@ -1079,14 +1155,9 @@ async def activate_course(
     """
     ip = _get_ip(request)
 
-    ok, msg = await set_course_active(
+    await set_course_active(
         db=db, course_id=course_id, is_active=True
     )
-    if not ok:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=msg,
-        )
 
     await write_system_log(
         db=db,
@@ -1103,6 +1174,8 @@ async def activate_course(
         target_id=course_id,
         ip_address=ip,
     )
+
+    await db.commit()
 
     return {"message": msg}
 
@@ -1125,14 +1198,9 @@ async def deactivate_course(
     """
     ip = _get_ip(request)
 
-    ok, msg = await set_course_active(
+    await set_course_active(
         db=db, course_id=course_id, is_active=False
     )
-    if not ok:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=msg,
-        )
 
     await write_system_log(
         db=db,
@@ -1149,6 +1217,8 @@ async def deactivate_course(
         target_id=course_id,
         ip_address=ip,
     )
+
+    await db.commit()
 
     return {"message": msg}
 
@@ -1202,17 +1272,12 @@ async def enroll_single(
     """
     ip = _get_ip(request)
 
-    ok, msg = await enroll_student_single(
+    await enroll_student_single(
         db=db,
         course_id=course_id,
         student_email=body.student_email,
         enrolled_by_id=admin.id,
     )
-    if not ok:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=msg,
-        )
 
     await write_audit_log(
         db=db,
@@ -1226,7 +1291,7 @@ async def enroll_single(
         },
     )
 
-    return EnrollmentOut(enrolled=1, message=msg)
+    return EnrollmentOut(enrolled=1, message=f"Student '{body.student_email}' enrolled successfully.")
 
 
 # ── POST /api/admin/courses/{course_id}/unenroll/single ──────────────────────
@@ -1249,16 +1314,11 @@ async def unenroll_single(
     """
     ip = _get_ip(request)
 
-    ok, msg = await unenroll_student_single(
+    await unenroll_student_single(
         db=db,
         course_id=course_id,
         student_email=body.student_email,
     )
-    if not ok:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=msg,
-        )
 
     await write_audit_log(
         db=db,
@@ -1272,7 +1332,7 @@ async def unenroll_single(
         },
     )
 
-    return EnrollmentOut(unenrolled=1, message=msg)
+    return EnrollmentOut(unenrolled=1, message=f"Student '{body.student_email}' unenrolled successfully.")
 
 
 # ── POST /api/admin/courses/{course_id}/enroll/bulk ──────────────────────────
@@ -1329,6 +1389,8 @@ async def enroll_bulk(
         f"{failed} failed."
     )
 
+    await db.commit()
+
     return EnrollmentOut(
         enrolled=enrolled,
         skipped=skipped,
@@ -1376,20 +1438,15 @@ async def assign_single(
     """
     ip = _get_ip(request)
 
-    ok, msg, t_id = await assign_teacher_single(
+    teacher_id = await assign_teacher_single(
         db=db,
         course_id=course_id,
         teacher_email=body.teacher_email,
         assigned_by_id=admin.id,
     )
-    if not ok:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=msg,
-        )
 
     # Notify teacher
-    if t_id:
+    if teacher_id:
         from services.notification_service import create_notification
         from services.course_service import get_course_by_id
         course_data = await get_course_by_id(db, course_id)
@@ -1415,6 +1472,8 @@ async def assign_single(
         },
     )
 
+    await db.commit()
+
     return EnrollmentOut(assigned=1, message=msg)
 
 
@@ -1438,16 +1497,11 @@ async def unassign_single(
     """
     ip = _get_ip(request)
 
-    ok, msg = await unassign_teacher_single(
+    await unassign_teacher_single(
         db=db,
         course_id=course_id,
         teacher_email=body.teacher_email,
     )
-    if not ok:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=msg,
-        )
 
     await write_audit_log(
         db=db,
@@ -1461,7 +1515,9 @@ async def unassign_single(
         },
     )
 
-    return EnrollmentOut(unassigned=1, message=msg)
+    await db.commit()
+
+    return EnrollmentOut(unassigned=1, message=f"Teacher '{body.teacher_email}' unassigned successfully.")
 
 
 # ── POST /api/admin/courses/{course_id}/assign/bulk-csv ──────────────────────
@@ -1546,6 +1602,8 @@ async def assign_bulk_csv(
         f"{skipped} skipped (already assigned), {failed} failed."
     )
 
+    await db.commit()
+
     return EnrollmentOut(
         assigned=assigned,
         skipped=skipped,
@@ -1603,6 +1661,8 @@ async def toggle_user_active_endpoint(
         actor_id=admin.id,
         description=f"Admin {action_word} user ID {user_id}.",
     )
+
+    await db.commit()
 
     return {
         "is_active": new_status,

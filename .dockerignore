@@ -1,0 +1,51 @@
+# Never bake secrets into the Docker image
+.env
+gcs-credentials.json
+app/gcs-credentials.json
+*.json
+
+# Git
+.git
+.gitignore
+
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.swo
+
+# Docs / Local dev files
+docs/
+*.md
+LICENSE
+docker-compose.yml
+requirements-test.txt
+
+# Project specific
+app/seed_out.txt
+app/names.csv
+clean_db.sql
+db_env.txt
+scratch/
+testr_test/

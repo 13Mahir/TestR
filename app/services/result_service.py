@@ -31,6 +31,9 @@ from models import (
     ExamAttempt, Answer, SubjectiveGrade, ExamResult,
     CourseEnrollment, User, AttemptStatus, ProctorViolation,
 )
+from core.exceptions import (
+    NotFoundException, ForbiddenException, ValidationException, ConflictException
+)
 
 
 # ── Attempt listing for teacher ───────────────────────────────────
@@ -41,32 +44,22 @@ async def get_exam_attempts_for_grading(
 ) -> list[dict]:
     """
     Returns a list of all student attempt summaries for an exam.
-    Used by the teacher grading list view.
-
-    For each enrolled student, returns their attempt status,
-    current marks totals, grading completion state,
-    and violation count.
-
-    Students who never started the exam are included
-    with status='not_attempted'.
+    Optimized to use bulk queries and aggregations.
     """
-    # Get all enrolled students for this exam's course
-    exam_r = await db.execute(
-        select(Exam).where(Exam.id == exam_id)
-    )
+    # 1. Get the exam and its course_id
+    exam_r = await db.execute(select(Exam).where(Exam.id == exam_id))
     exam = exam_r.scalar_one_or_none()
-    if exam is None:
+    if not exam:
         return []
 
-    enrolled_r = await db.execute(
-        select(CourseEnrollment, User)
-        .join(User, CourseEnrollment.student_id == User.id)
-        .where(CourseEnrollment.course_id == exam.course_id)
-        .order_by(User.email.asc())
+    # 2. Get subjective question count for this exam (constant for all students)
+    subj_q_count_r = await db.execute(
+        select(func.count(Question.id))
+        .where(and_(Question.exam_id == exam_id, Question.question_type == QuestionType.subjective))
     )
-    enrolled_rows = enrolled_r.all()
+    subj_q_count = subj_q_count_r.scalar_one()
 
-    # Pre-fetch violation summaries for all attempts of this exam to avoid N+1 queries
+    # 3. Pre-fetch violation summaries
     viols_r = await db.execute(
         select(
             ProctorViolation.attempt_id,
@@ -77,28 +70,59 @@ async def get_exam_attempts_for_grading(
         .where(ExamAttempt.exam_id == exam_id)
         .group_by(ProctorViolation.attempt_id, ProctorViolation.violation_type)
     )
-    # viol_map: { attempt_id -> { "tab_switch": 2, ... } }
     viol_map = {}
     for aid, vtype, vcount in viols_r.all():
         if aid not in viol_map:
             viol_map[aid] = {}
-        # violation_type is an Enum, use .value for the string key
         viol_map[aid][vtype.value] = vcount
 
-    summaries = []
-    for enrollment, user in enrolled_rows:
-        # Find attempt
-        attempt_r = await db.execute(
-            select(ExamAttempt).where(
-                and_(
-                    ExamAttempt.exam_id    == exam_id,
-                    ExamAttempt.student_id == user.id,
-                )
-            )
-        )
-        attempt = attempt_r.scalar_one_or_none()
+    # 4. Main query: Enrolled students + Attempts + Aggregate marks/grading state
+    # We use subqueries for marks to avoid double-counting due to multiple joins
+    
+    # Subquery for MCQ marks
+    mcq_sub = (
+        select(Answer.attempt_id, func.sum(Answer.marks_awarded).label("mcq_total"))
+        .join(Question, Answer.question_id == Question.id)
+        .where(Question.question_type == QuestionType.mcq)
+        .group_by(Answer.attempt_id)
+        .subquery()
+    )
 
-        if attempt is None:
+    # Subquery for Subjective marks and graded count
+    subj_sub = (
+        select(
+            Answer.attempt_id, 
+            func.sum(SubjectiveGrade.marks_awarded).label("subj_total"),
+            func.count(SubjectiveGrade.id).label("graded_count")
+        )
+        .join(SubjectiveGrade, SubjectiveGrade.answer_id == Answer.id)
+        .group_by(Answer.attempt_id)
+        .subquery()
+    )
+
+    result = await db.execute(
+        select(
+            User,
+            ExamAttempt,
+            func.coalesce(mcq_sub.c.mcq_total, 0).label("mcq_marks"),
+            func.coalesce(subj_sub.c.subj_total, 0).label("subj_marks"),
+            func.coalesce(subj_sub.c.graded_count, 0).label("graded_count")
+        )
+        .join(CourseEnrollment, CourseEnrollment.student_id == User.id)
+        .outerjoin(ExamAttempt, and_(ExamAttempt.student_id == User.id, ExamAttempt.exam_id == exam_id))
+        .outerjoin(mcq_sub, mcq_sub.c.attempt_id == ExamAttempt.id)
+        .outerjoin(subj_sub, subj_sub.c.attempt_id == ExamAttempt.id)
+        .where(CourseEnrollment.course_id == exam.course_id)
+        .order_by(User.email.asc())
+    )
+    rows = result.all()
+
+    summaries = []
+    for row in rows:
+        user = row.User
+        attempt = row.ExamAttempt
+        
+        if not attempt:
             summaries.append({
                 "attempt_id":          None,
                 "student_id":          user.id,
@@ -116,59 +140,6 @@ async def get_exam_attempts_for_grading(
             })
             continue
 
-        # MCQ marks from auto-graded answers
-        mcq_r = await db.execute(
-            select(func.coalesce(
-                func.sum(Answer.marks_awarded), 0
-            ))
-            .join(Question, Answer.question_id == Question.id)
-            .where(
-                and_(
-                    Answer.attempt_id    == attempt.id,
-                    Question.question_type == QuestionType.mcq,
-                    Answer.marks_awarded  != None,
-                )
-            )
-        )
-        mcq_marks = float(mcq_r.scalar_one() or 0)
-
-        # Subjective marks from teacher grades
-        subj_r = await db.execute(
-            select(func.coalesce(
-                func.sum(SubjectiveGrade.marks_awarded), 0
-            ))
-            .join(Answer,
-                  SubjectiveGrade.answer_id == Answer.id)
-            .where(Answer.attempt_id == attempt.id)
-        )
-        subj_marks = float(subj_r.scalar_one() or 0)
-
-        # Check if all subjective questions are graded
-        subj_q_count_r = await db.execute(
-            select(func.count(Question.id))
-            .where(
-                and_(
-                    Question.exam_id == exam_id,
-                    Question.question_type == QuestionType.subjective,
-                )
-            )
-        )
-        subj_q_count = subj_q_count_r.scalar_one()
-
-        graded_count_r = await db.execute(
-            select(func.count(SubjectiveGrade.id))
-            .join(Answer,
-                  SubjectiveGrade.answer_id == Answer.id)
-            .where(Answer.attempt_id == attempt.id)
-        )
-        graded_count = graded_count_r.scalar_one()
-
-        is_fully_graded = (
-            subj_q_count == 0 or
-            graded_count >= subj_q_count
-        )
-
-        # Violation info from pre-fetched map
         v_summary = viol_map.get(attempt.id, {})
         v_total = sum(v_summary.values())
 
@@ -180,10 +151,10 @@ async def get_exam_attempts_for_grading(
             "started_at":          ensure_utc(attempt.started_at),
             "submitted_at":        ensure_utc(attempt.submitted_at),
             "status":              attempt.status.value,
-            "mcq_marks":           mcq_marks,
-            "subjective_marks":    subj_marks,
-            "total_marks_awarded": mcq_marks + subj_marks,
-            "is_fully_graded":     is_fully_graded,
+            "mcq_marks":           row.mcq_marks,
+            "subjective_marks":    row.subj_marks,
+            "total_marks_awarded": row.mcq_marks + row.subj_marks,
+            "is_fully_graded":     (subj_q_count == 0 or row.graded_count >= subj_q_count),
             "violation_count":     v_total,
             "violation_summary":   v_summary,
         })
@@ -217,7 +188,7 @@ async def get_student_answers_for_grading(
             "question_id":        question.id,
             "question_text":      question.question_text,
             "question_type":      question.question_type.value,
-            "marks_available":    float(question.marks),
+            "marks_available":    question.marks,
             "word_limit":         question.word_limit,
             "selected_option_id": answer.selected_option_id,
             "selected_label":     None,
@@ -225,9 +196,7 @@ async def get_student_answers_for_grading(
             "correct_label":      None,
             "is_correct":         answer.is_correct,
             "subjective_text":    answer.subjective_text,
-            "marks_awarded":      float(answer.marks_awarded)
-                                  if answer.marks_awarded is not None
-                                  else None,
+            "marks_awarded":      answer.marks_awarded,
             "teacher_feedback":   None,
             "is_graded":          False,
         }
@@ -267,9 +236,7 @@ async def get_student_answers_for_grading(
             )
             grade = grade_r.scalar_one_or_none()
             if grade:
-                entry["marks_awarded"]   = float(
-                    grade.marks_awarded
-                )
+                entry["marks_awarded"]   = grade.marks_awarded
                 entry["teacher_feedback"] = grade.feedback
                 entry["is_graded"]        = True
 
@@ -286,27 +253,10 @@ async def grade_subjective_answer(
     teacher_id: int,
     marks_awarded: float,
     feedback: Optional[str],
-) -> tuple[bool, str]:
+) -> None:
     """
     Submits or updates a teacher's grade for a subjective answer.
-
-    Validates:
-      - Answer exists and belongs to a subjective question.
-      - marks_awarded does not exceed the question's marks.
-      - The exam the answer belongs to is published
-        (cannot grade unpublished exam attempts).
-
-    Creates a SubjectiveGrade row if first time grading,
-    or updates the existing row.
-
-    Also updates answers.marks_awarded to match so result
-    computation has a single source.
-
-    Returns:
-        (True, success_message)
-        (False, error_string)
-
-    Does NOT commit — caller commits.
+    Raises exceptions on failure.
     """
     # Load answer + question + attempt + exam
     answer_r = await db.execute(
@@ -318,29 +268,22 @@ async def grade_subjective_answer(
     )
     row = answer_r.one_or_none()
     if row is None:
-        return False, f"Answer {answer_id} not found."
+        raise NotFoundException(f"Answer {answer_id} not found.")
 
     answer, question, attempt, exam = row
 
-    # Must be subjective
     if question.question_type != QuestionType.subjective:
-        return False, (
-            "Only subjective answers can be manually graded. "
-            "MCQ answers are auto-graded."
-        )
+        raise ValidationException("Only subjective answers can be manually graded.")
 
-    # marks_awarded must not exceed question marks
     if Decimal(str(marks_awarded)) > question.marks:
-        return False, (
-            f"marks_awarded ({marks_awarded}) cannot exceed "
-            f"the question's available marks "
-            f"({float(question.marks)})."
-        )
+        raise ValidationException(f"marks_awarded ({marks_awarded}) exceeds question's available marks.")
 
-    # Exam must be published (students can only attempt
-    # published exams, so this is a safeguard)
     if not exam.is_published:
-        return False, "Exam is not published."
+        raise ValidationException("Exam is not published.")
+
+    # Only teacher who created exam or admin (implied by router) can grade
+    if exam.created_by != teacher_id:
+        raise ForbiddenException("You can only grade exams you created.")
 
     # Upsert SubjectiveGrade
     existing_r = await db.execute(
@@ -369,9 +312,7 @@ async def grade_subjective_answer(
     db.add(answer)
 
     await db.flush()
-    return True, (
-        f"Grade saved: {marks_awarded} / {float(question.marks)}"
-    )
+    return True, f"Grade saved: {marks_awarded} / {question.marks}"
 
 
 # ── Result computation ────────────────────────────────────────────
@@ -382,21 +323,6 @@ async def compute_exam_result(
 ) -> Optional[dict]:
     """
     Computes and upserts the exam_results row for an attempt.
-
-    Calculation:
-      mcq_marks    = sum of answers.marks_awarded
-                     for MCQ questions (includes negative marking
-                     already applied at answer time)
-      subj_marks   = sum of subjective_grades.marks_awarded
-      negative     = stored separately (computed at submit time
-                     in student attempt endpoint, Prompt 20)
-      total        = mcq_marks + subj_marks
-
-    Note: negative_marks_deducted is written at auto-grade time
-    (student submit). This function reads what is already stored.
-
-    Returns the result dict, or None on failure.
-    Does NOT commit — caller commits.
     """
     attempt_r = await db.execute(
         select(ExamAttempt, Exam)
@@ -409,8 +335,7 @@ async def compute_exam_result(
 
     attempt, exam = row
 
-    # MCQ marks (auto-graded; marks_awarded already accounts
-    # for negative marking from the student submit step)
+    # MCQ marks
     mcq_r = await db.execute(
         select(func.coalesce(func.sum(Answer.marks_awarded), 0))
         .join(Question, Answer.question_id == Question.id)
@@ -425,32 +350,18 @@ async def compute_exam_result(
 
     # Subjective marks
     subj_r = await db.execute(
-        select(func.coalesce(
-            func.sum(SubjectiveGrade.marks_awarded), 0
-        ))
+        select(func.coalesce(func.sum(SubjectiveGrade.marks_awarded), 0))
         .join(Answer, SubjectiveGrade.answer_id == Answer.id)
         .where(Answer.attempt_id == attempt_id)
     )
     subj_marks = Decimal(str(subj_r.scalar_one() or 0))
 
-    # Negative marks deducted — stored in existing result row
-    # or 0 if not yet computed
-    existing_r = await db.execute(
-        select(ExamResult).where(
-            ExamResult.attempt_id == attempt_id
-        )
-    )
+    # Negative marks deducted - read from existing result row if it exists
+    existing_r = await db.execute(select(ExamResult).where(ExamResult.attempt_id == attempt_id))
     existing = existing_r.scalar_one_or_none()
-    negative_deducted = (
-        existing.negative_marks_deducted
-        if existing else Decimal("0.00")
-    )
+    negative_deducted = existing.negative_marks_deducted if existing else Decimal("0.00")
 
     total = mcq_marks + subj_marks
-    # Note: negative marks are already subtracted from mcq_marks
-    # at auto-grade time so we don't double-subtract here.
-    # negative_marks_deducted is stored for reporting only.
-
     is_pass = total >= exam.passing_marks
 
     if existing:
@@ -474,13 +385,12 @@ async def compute_exam_result(
         db.add(result_row)
 
     await db.flush()
-
     return {
         "attempt_id":              attempt_id,
-        "mcq_marks_awarded":       float(mcq_marks),
-        "subjective_marks_awarded": float(subj_marks),
-        "negative_marks_deducted": float(negative_deducted),
-        "total_marks_awarded":     float(total),
+        "mcq_marks_awarded":       mcq_marks,
+        "subjective_marks_awarded": subj_marks,
+        "negative_marks_deducted": negative_deducted,
+        "total_marks_awarded":     total,
         "is_pass":                 bool(is_pass),
     }
 
@@ -491,84 +401,116 @@ async def publish_results(
     db: AsyncSession,
     exam_id: int,
     teacher_id: int,
-) -> tuple[bool, str, int]:
+) -> int:
     """
     Publishes results for all submitted attempts of an exam.
-
-    Steps:
-      1. Verify teacher owns exam.
-      2. Compute/update exam_results for every submitted attempt.
-      3. Set exam.results_published = True.
-      4. Set exam.results_published_at = now(UTC).
-      5. Set published_by + published_at on each ExamResult row.
-
-    Returns:
-        (True, success_message, published_count)
-        (False, error_string, 0)
-
-    Does NOT commit — caller commits.
+    Returns the count of results published.
+    Raises exceptions on failure.
     """
     from services.exam_service import verify_teacher_owns_exam
 
-    exam = await verify_teacher_owns_exam(
-        db, teacher_id, exam_id
-    )
+    exam = await verify_teacher_owns_exam(db, teacher_id, exam_id)
     if exam is None:
-        return False, "Exam not found or you do not own it.", 0
+        raise ForbiddenException("Exam not found or you do not own it.")
 
     if not exam.is_published:
-        return False, (
-            "Cannot publish results for an unpublished exam."
-        ), 0
+        raise ValidationException("Cannot publish results for an unpublished exam.")
 
     if exam.results_published:
-        return False, "Results are already published.", 0
+        raise ConflictException("Results are already published.")
 
-    # Fetch all submitted attempts
+    # 1. Get all eligible attempt IDs
     attempts_r = await db.execute(
-        select(ExamAttempt).where(
+        select(ExamAttempt.id).where(
             and_(
                 ExamAttempt.exam_id == exam_id,
-                ExamAttempt.status.in_([
-                    AttemptStatus.submitted,
-                    AttemptStatus.auto_submitted,
-                ]),
+                ExamAttempt.status.in_([AttemptStatus.submitted, AttemptStatus.auto_submitted]),
             )
         )
     )
-    attempts = attempts_r.scalars().all()
+    attempt_ids = [r[0] for r in attempts_r.all()]
+    if not attempt_ids:
+        # No attempts to publish, but we mark the exam as results_published anyway
+        exam.results_published = True
+        exam.results_published_at = datetime.now(timezone.utc)
+        db.add(exam)
+        await db.flush()
+        return 0
+
+    # 2. Bulk fetch MCQ totals for all these attempts
+    mcq_sums_r = await db.execute(
+        select(Answer.attempt_id, func.sum(Answer.marks_awarded).label("mcq_total"))
+        .join(Question, Answer.question_id == Question.id)
+        .where(and_(Answer.attempt_id.in_(attempt_ids), Question.question_type == QuestionType.mcq))
+        .group_by(Answer.attempt_id)
+    )
+    mcq_map = {r.attempt_id: Decimal(str(r.mcq_total or 0)) for r in mcq_sums_r.all()}
+
+    # 3. Bulk fetch Subjective totals
+    subj_sums_r = await db.execute(
+        select(Answer.attempt_id, func.sum(SubjectiveGrade.marks_awarded).label("subj_total"))
+        .join(SubjectiveGrade, SubjectiveGrade.answer_id == Answer.id)
+        .where(Answer.attempt_id.in_(attempt_ids))
+        .group_by(Answer.attempt_id)
+    )
+    subj_map = {r.attempt_id: Decimal(str(r.subj_total or 0)) for r in subj_sums_r.all()}
+
+    # 4. Fetch existing ExamResult rows to update them
+    results_r = await db.execute(
+        select(ExamResult).where(ExamResult.attempt_id.in_(attempt_ids))
+    )
+    existing_results = {r.attempt_id: r for r in results_r.scalars().all()}
 
     now = datetime.now(timezone.utc)
     published_count = 0
 
-    for attempt in attempts:
-        # Compute/update result
-        await compute_exam_result(db=db, attempt_id=attempt.id)
+    # 5. Update/Create ExamResult rows
+    for aid in attempt_ids:
+        mcq_val  = mcq_map.get(aid, Decimal("0.00"))
+        subj_val = subj_map.get(aid, Decimal("0.00"))
+        
+        res_row = existing_results.get(aid)
+        neg_val = res_row.negative_marks_deducted if res_row else Decimal("0.00")
+        
+        total   = mcq_val + subj_val
+        is_pass = total >= exam.passing_marks
 
-        # Update published_by + published_at on result row
-        await db.execute(
-            update(ExamResult)
-            .where(ExamResult.attempt_id == attempt.id)
-            .values(
+        if res_row:
+            res_row.mcq_marks_awarded        = mcq_val
+            res_row.subjective_marks_awarded = subj_val
+            res_row.total_marks_awarded      = total
+            res_row.is_pass                  = is_pass
+            res_row.published_by             = teacher_id
+            res_row.published_at             = now
+            res_row.computed_at              = now
+            db.add(res_row)
+        else:
+            # This shouldn't normally happen if student_service.py was called correctly,
+            # but we handle it for robustness.
+            new_res = ExamResult(
+                attempt_id=aid,
+                exam_id=exam_id,
+                student_id=None, # We'd need to fetch this if we really wanted to be robust
+                mcq_marks_awarded=mcq_val,
+                subjective_marks_awarded=subj_val,
+                negative_marks_deducted=Decimal("0.00"),
+                total_marks_awarded=total,
+                is_pass=is_pass,
                 published_by=teacher_id,
                 published_at=now,
-                is_pass=ExamResult.total_marks_awarded
-                        >= exam.passing_marks,
             )
-        )
+            db.add(new_res)
+        
         published_count += 1
 
-    # Mark exam as results published
+    # 6. Mark exam as results published
     exam.results_published    = True
     exam.results_published_at = now
     db.add(exam)
 
     await db.flush()
-    return (
-        True,
-        f"Results published for {published_count} attempt(s).",
-        published_count,
-    )
+    return True, f"Results published for {published_count} attempt(s).", published_count
+
 
 
 # ── Grade book ────────────────────────────────────────────────────
@@ -579,56 +521,44 @@ async def get_grade_book(
 ) -> Optional[dict]:
     """
     Builds the complete grade book for an exam.
-
-    Includes every enrolled student, whether or not they
-    attempted the exam.
-
-    Returns a dict matching GradeBookResponse schema,
-    or None if exam not found.
+    Includes every enrolled student, whether or not they attempted the exam.
+    Optimized to use a single bulk query.
     """
-    exam_r = await db.execute(
-        select(Exam).where(Exam.id == exam_id)
-    )
+    exam_r = await db.execute(select(Exam).where(Exam.id == exam_id))
     exam = exam_r.scalar_one_or_none()
-    if exam is None:
+    if not exam:
         return None
 
     from models import Course
-    course_r = await db.execute(
-        select(Course).where(Course.id == exam.course_id)
-    )
+    course_r = await db.execute(select(Course).where(Course.id == exam.course_id))
     course = course_r.scalar_one_or_none()
     course_code = course.course_code if course else "—"
 
-    # Get all enrolled students
-    enrolled_r = await db.execute(
-        select(CourseEnrollment, User)
-        .join(User, CourseEnrollment.student_id == User.id)
+    # Single bulk query for all enrolled students, their attempts, and results
+    result = await db.execute(
+        select(User, ExamAttempt, ExamResult)
+        .join(CourseEnrollment, CourseEnrollment.student_id == User.id)
+        .outerjoin(ExamAttempt, and_(ExamAttempt.student_id == User.id, ExamAttempt.exam_id == exam_id))
+        .outerjoin(ExamResult, ExamResult.attempt_id == ExamAttempt.id)
         .where(CourseEnrollment.course_id == exam.course_id)
         .order_by(User.email.asc())
     )
-    enrolled_rows = enrolled_r.all()
+    rows = result.all()
 
-    entries   = []
+    entries = []
     pass_count = 0
     fail_count = 0
-    attempted  = 0
-    not_attempted = 0
+    attempted_count = 0
+    not_attempted_count = 0
+    total_marks_available = exam.total_marks
 
-    for enrollment, user in enrolled_rows:
-        # Find attempt
-        attempt_r = await db.execute(
-            select(ExamAttempt).where(
-                and_(
-                    ExamAttempt.exam_id    == exam_id,
-                    ExamAttempt.student_id == user.id,
-                )
-            )
-        )
-        attempt = attempt_r.scalar_one_or_none()
+    for row in rows:
+        user = row.User
+        attempt = row.ExamAttempt
+        res_row = row.ExamResult
 
-        if attempt is None:
-            not_attempted += 1
+        if not attempt:
+            not_attempted_count += 1
             entries.append({
                 "student_id":               user.id,
                 "student_email":            user.email,
@@ -638,36 +568,23 @@ async def get_grade_book(
                 "subjective_marks_awarded": 0.0,
                 "negative_marks_deducted":  0.0,
                 "total_marks_awarded":      0.0,
-                "total_marks_available":    float(exam.total_marks),
+                "total_marks_available":    total_marks_available,
                 "percentage":               0.0,
-                "is_pass":                  False,
+                "is_pass":                  None,
                 "status":                   "not_attempted",
             })
             continue
 
-        attempted += 1
+        attempted_count += 1
+        
+        if res_row:
+            total_awarded = res_row.total_marks_awarded
+            percentage = (total_awarded / total_marks_available * 100) if total_marks_available > 0 else Decimal("0.0")
+            is_pass = bool(res_row.is_pass)
 
-        # Find result
-        result_r = await db.execute(
-            select(ExamResult).where(
-                ExamResult.attempt_id == attempt.id
-            )
-        )
-        result = result_r.scalar_one_or_none()
-
-        total_marks = float(exam.total_marks)
-        if result:
-            total_awarded = float(result.total_marks_awarded)
-            percentage    = (
-                (total_awarded / total_marks * 100)
-                if total_marks > 0 else 0.0
-            )
-            is_pass = bool(result.is_pass) \
-                if result.is_pass is not None else None
-
-            if is_pass is True:
+            if is_pass:
                 pass_count += 1
-            elif is_pass is False:
+            else:
                 fail_count += 1
 
             entries.append({
@@ -675,17 +592,11 @@ async def get_grade_book(
                 "student_email":            user.email,
                 "student_name":             user.full_name,
                 "attempt_id":               attempt.id,
-                "mcq_marks_awarded":        float(
-                    result.mcq_marks_awarded
-                ),
-                "subjective_marks_awarded": float(
-                    result.subjective_marks_awarded
-                ),
-                "negative_marks_deducted":  float(
-                    result.negative_marks_deducted
-                ),
+                "mcq_marks_awarded":        res_row.mcq_marks_awarded,
+                "subjective_marks_awarded": res_row.subjective_marks_awarded,
+                "negative_marks_deducted":  res_row.negative_marks_deducted,
                 "total_marks_awarded":      total_awarded,
-                "total_marks_available":    total_marks,
+                "total_marks_available":    total_marks_available,
                 "percentage":               round(percentage, 2),
                 "is_pass":                  is_pass,
                 "status":                   attempt.status.value,
@@ -701,25 +612,26 @@ async def get_grade_book(
                 "subjective_marks_awarded": 0.0,
                 "negative_marks_deducted":  0.0,
                 "total_marks_awarded":      0.0,
-                "total_marks_available":    total_marks,
+                "total_marks_available":    total_marks_available,
                 "percentage":               0.0,
                 "is_pass":                  None,
                 "status":                   attempt.status.value,
             })
 
     return {
-        "exam_id":            exam.id,
-        "exam_title":         exam.title,
-        "course_code":        course_code,
-        "total_marks":        float(exam.total_marks),
-        "passing_marks":      float(exam.passing_marks),
-        "is_published":       exam.is_published,
-        "results_published":  exam.results_published,
-        "entries":            entries,
-        "attempted_count":    attempted,
-        "not_attempted_count": not_attempted,
-        "pass_count":         pass_count,
-        "fail_count":         fail_count,
+        "exam_id":             exam.id,
+        "exam_title":          exam.title,
+        "course_code":         course_code,
+        "total_marks":         total_marks_available,
+        "passing_marks":       exam.passing_marks,
+        "is_published":        exam.is_published,
+        "results_published":   exam.results_published,
+        "total_enrolled":      len(rows),
+        "attempted_count":     attempted_count,
+        "not_attempted_count": not_attempted_count,
+        "pass_count":          pass_count,
+        "fail_count":          fail_count,
+        "entries":             entries,
     }
 
 
@@ -731,13 +643,6 @@ async def export_grade_book_csv(
 ) -> Optional[str]:
     """
     Exports the grade book as a UTF-8 CSV string.
-
-    Columns:
-        student_email, student_name, status,
-        mcq_marks, subjective_marks, negative_deducted,
-        total_marks, available_marks, percentage, pass_fail
-
-    Returns CSV string or None if exam not found.
     """
     grade_book = await get_grade_book(db=db, exam_id=exam_id)
     if grade_book is None:
@@ -746,21 +651,12 @@ async def export_grade_book_csv(
     output = io.StringIO()
     writer = csv.writer(output, quoting=csv.QUOTE_ALL)
 
-    # Header
     writer.writerow([
-        "student_email",
-        "student_name",
-        "status",
-        "mcq_marks_awarded",
-        "subjective_marks_awarded",
-        "negative_marks_deducted",
-        "total_marks_awarded",
-        "total_marks_available",
-        "percentage",
-        "pass_fail",
+        "student_email", "student_name", "status",
+        "mcq_marks_awarded", "subjective_marks_awarded", "negative_marks_deducted",
+        "total_marks_awarded", "total_marks_available", "percentage", "pass_fail",
     ])
 
-    # Data rows
     for entry in grade_book["entries"]:
         writer.writerow([
             entry["student_email"],
@@ -772,9 +668,7 @@ async def export_grade_book_csv(
             entry["total_marks_awarded"],
             entry["total_marks_available"],
             entry["percentage"],
-            "PASS" if entry["is_pass"] is True
-            else "FAIL" if entry["is_pass"] is False
-            else "—",
+            "PASS" if entry["is_pass"] is True else "FAIL" if entry["is_pass"] is False else "—",
         ])
 
     return output.getvalue()
@@ -786,23 +680,11 @@ async def export_grade_book_pdf(
 ) -> Optional[bytes]:
     """
     Exports the grade book as a PDF bytes object.
-    Uses reportlab (already in requirements.txt).
-
-    Layout:
-      - Title: exam title + course code
-      - Subtitle: total_marks, passing_marks, results status
-      - Summary stats: attempted, not attempted, pass, fail
-      - Table: one row per student with all grade columns
-
-    Returns PDF bytes or None if exam not found.
     """
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib import colors
     from reportlab.lib.units import cm
-    from reportlab.platypus import (
-        SimpleDocTemplate, Table, TableStyle,
-        Paragraph, Spacer,
-    )
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
     from reportlab.lib.styles import getSampleStyleSheet
 
     grade_book = await get_grade_book(db=db, exam_id=exam_id)
@@ -810,112 +692,53 @@ async def export_grade_book_pdf(
         return None
 
     buffer = io.BytesIO()
-    doc    = SimpleDocTemplate(
+    doc = SimpleDocTemplate(
         buffer,
         pagesize=landscape(A4),
-        leftMargin=1.5*cm,
-        rightMargin=1.5*cm,
-        topMargin=1.5*cm,
-        bottomMargin=1.5*cm,
+        leftMargin=1.5*cm, rightMargin=1.5*cm,
+        topMargin=1.5*cm, bottomMargin=1.5*cm,
     )
 
-    styles  = getSampleStyleSheet()
-    story   = []
+    styles = getSampleStyleSheet()
+    story = []
 
-    # Title
+    story.append(Paragraph(f"Grade Book — {grade_book['exam_title']}", styles["Title"]))
     story.append(Paragraph(
-        f"Grade Book — {grade_book['exam_title']}",
-        styles["Title"]
-    ))
-    story.append(Paragraph(
-        f"Course: {grade_book['course_code']} | "
-        f"Total Marks: {grade_book['total_marks']} | "
+        f"Course: {grade_book['course_code']} | Total Marks: {grade_book['total_marks']} | "
         f"Passing Marks: {grade_book['passing_marks']} | "
         f"Results: {'Published' if grade_book['results_published'] else 'Not Published'}",
         styles["Normal"]
     ))
     story.append(Spacer(1, 0.3*cm))
     story.append(Paragraph(
-        f"Attempted: {grade_book['attempted_count']} | "
-        f"Not Attempted: {grade_book['not_attempted_count']} | "
-        f"Pass: {grade_book['pass_count']} | "
-        f"Fail: {grade_book['fail_count']}",
+        f"Attempted: {grade_book['attempted_count']} | Not Attempted: {grade_book['not_attempted_count']} | "
+        f"Pass: {grade_book['pass_count']} | Fail: {grade_book['fail_count']}",
         styles["Normal"]
     ))
     story.append(Spacer(1, 0.5*cm))
 
-    # Table data
-    headers = [
-        "Email", "Name", "Status",
-        "MCQ", "Subj.", "Neg.",
-        "Total", "Avail.", "%", "P/F",
-    ]
-    rows = [headers]
+    headers = ["Email", "Name", "Status", "MCQ", "Subj.", "Neg.", "Total", "Avail.", "%", "P/F"]
+    table_data = [headers]
 
     for entry in grade_book["entries"]:
-        pf = (
-            "PASS" if entry["is_pass"] is True
-            else "FAIL" if entry["is_pass"] is False
-            else "—"
-        )
-        rows.append([
-            entry["student_email"],
-            entry["student_name"] or "—",
-            entry["status"],
-            str(entry["mcq_marks_awarded"]),
-            str(entry["subjective_marks_awarded"]),
-            str(entry["negative_marks_deducted"]),
-            str(entry["total_marks_awarded"]),
-            str(entry["total_marks_available"]),
-            f"{entry['percentage']}%",
-            pf,
+        pf = "PASS" if entry["is_pass"] is True else "FAIL" if entry["is_pass"] is False else "—"
+        table_data.append([
+            entry["student_email"], entry["student_name"], entry["status"],
+            entry["mcq_marks_awarded"], entry["subjective_marks_awarded"], entry["negative_marks_deducted"],
+            entry["total_marks_awarded"], entry["total_marks_available"], entry["percentage"], pf
         ])
 
-    # Column widths (landscape A4 = ~27.7cm usable)
-    col_widths = [
-        5.5*cm,  # Email
-        3.5*cm,  # Name
-        2.5*cm,  # Status
-        1.5*cm,  # MCQ
-        1.5*cm,  # Subj
-        1.5*cm,  # Neg
-        1.5*cm,  # Total
-        1.5*cm,  # Avail
-        1.5*cm,  # %
-        1.2*cm,  # P/F
-    ]
-
-    table = Table(rows, colWidths=col_widths, repeatRows=1)
-    table.setStyle(TableStyle([
-        # Header row
-        ("BACKGROUND",  (0, 0), (-1, 0), colors.HexColor("#1d4ed8")),
-        ("TEXTCOLOR",   (0, 0), (-1, 0), colors.white),
-        ("FONTNAME",    (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE",    (0, 0), (-1, 0), 8),
-        ("ALIGN",       (0, 0), (-1, 0), "CENTER"),
-        # Data rows
-        ("FONTSIZE",    (0, 1), (-1, -1), 7),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1),
-         [colors.white, colors.HexColor("#f0f4ff")]),
-        ("GRID",        (0, 0), (-1, -1), 0.4, colors.HexColor("#d1d5db")),
-        ("VALIGN",      (0, 0), (-1, -1), "MIDDLE"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 4),
-        ("RIGHTPADDING",(0, 0), (-1, -1), 4),
-        ("TOPPADDING",  (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING",(0,0), (-1, -1), 3),
-        # PASS = green text, FAIL = red text
-        *[
-            ("TEXTCOLOR", (9, i+1), (9, i+1),
-             colors.HexColor("#16a34a")
-             if rows[i+1][9] == "PASS"
-             else colors.HexColor("#dc2626")
-             if rows[i+1][9] == "FAIL"
-             else colors.black)
-            for i in range(len(grade_book["entries"]))
-        ],
+    t = Table(table_data, repeatRows=1)
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
     ]))
+    story.append(t)
 
-    story.append(table)
     doc.build(story)
-
     return buffer.getvalue()

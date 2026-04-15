@@ -2,20 +2,24 @@
 Database connection and session management for the TestR.
 """
 from typing import AsyncGenerator
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
 from core.config import settings
 
 # engine kwargs mapping
 engine_kwargs = {
-    "pool_pre_ping": True,
-    "pool_size": 10,
-    "max_overflow": 20,
-    "pool_recycle": 3600,
     "echo": settings.APP_ENV == "development"
 }
+
+if not settings.db_url.startswith("sqlite"):
+    engine_kwargs.update({
+        "pool_pre_ping": True,
+        "pool_size": 10,
+        "max_overflow": 20,
+        "pool_recycle": 3600,
+    })
 
 engine = create_async_engine(settings.db_url, **engine_kwargs)
 
@@ -26,19 +30,20 @@ async_session_factory = async_sessionmaker(
     autoflush=False
 )
 
-Base = declarative_base()
+class Base(DeclarativeBase):
+    """SQLAlchemy 2.0 style Declarative Base."""
+    pass
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """
-    FastAPI dependency that yields a database session, commits on success,
-    rolls back on exception, and always closes the session.
+    Dependency for obtaining an asynchronous database session.
+    Provides automatic resource management and rollback on failure.
     """
     async with async_session_factory() as session:
         try:
             yield session
-            await session.commit()
-        except:
+        except Exception:
             await session.rollback()
             raise
         finally:

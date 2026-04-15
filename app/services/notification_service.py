@@ -14,6 +14,7 @@ from sqlalchemy import select, func, update, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import Notification
+from core.exceptions import NotFoundException
 
 
 async def create_notification(
@@ -175,7 +176,6 @@ async def delete_notification(
     )
     notification = result.scalar_one_or_none()
     if notification is None:
-        return False
+        raise NotFoundException("Notification not found.")
     await db.delete(notification)
     await db.flush()
-    return True

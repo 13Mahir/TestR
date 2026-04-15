@@ -385,20 +385,6 @@ CREATE TABLE proctor_snapshots (
 CREATE INDEX idx_ps_attempt ON proctor_snapshots(attempt_id);
 CREATE INDEX idx_ps_time    ON proctor_snapshots(attempt_id, captured_at);
 
-CREATE TABLE notifications (
-  id         BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  user_id    BIGINT UNSIGNED NOT NULL,
-  title      VARCHAR(200)    NOT NULL,
-  message    TEXT            NOT NULL,
-  is_read    BOOLEAN         NOT NULL DEFAULT FALSE,
-  created_at DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT fk_notif_user
-    FOREIGN KEY (user_id) REFERENCES users(id)
-    ON DELETE CASCADE ON UPDATE CASCADE
-);
-
-CREATE INDEX idx_notif_user     ON notifications(user_id);
-CREATE INDEX idx_notif_unread   ON notifications(user_id, is_read);
 
 CREATE TABLE forum_threads (
   id          BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,

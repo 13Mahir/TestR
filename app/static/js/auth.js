@@ -45,6 +45,7 @@ async function apiFetch(url, options = {}) {
     credentials: "include",
     headers: {
       "Content-Type": "application/json",
+      "X-Requested-With": "XMLHttpRequest",
       ...(options.headers || {}),
     },
     ...options,
@@ -116,6 +117,7 @@ async function _tryRefresh() {
     const res = await fetch(API_REFRESH, {
       method: "POST",
       credentials: "include",
+      headers: { "X-Requested-With": "XMLHttpRequest" },
     });
     return res.ok;
   } catch (_) {
@@ -135,6 +137,9 @@ async function logout() {
     await fetch(API_LOGOUT, {
       method: "POST",
       credentials: "include",
+      headers: {
+        "X-Requested-With": "XMLHttpRequest"
+      }
     });
   } catch (_) {
     // Ignore errors — always redirect to login

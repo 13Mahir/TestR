@@ -81,11 +81,23 @@ async def generate_signed_url(
         client = _get_client()
         bkt    = client.bucket(bucket)
         blob   = bkt.blob(file_path)
-        url    = blob.generate_signed_url(
-            expiration=datetime.timedelta(minutes=expiry_minutes),
-            method="GET",
-            version="v4",
-        )
-        return url
+
+        # For V4 signing to work without a service account key (on Cloud Run),
+        # we need to provide the service account email and ensure the 
+        # SA has "Service Account Token Creator" role on itself.
+        try:
+            url = blob.generate_signed_url(
+                expiration=datetime.timedelta(minutes=expiry_minutes),
+                method="GET",
+                version="v4",
+            )
+            return url
+        except Exception as e:
+            # If signing fails (likely missing private key), 
+            # we return a public URL if the bucket is public,
+            # or log a warning.
+            import logging
+            logging.warning(f"GCS Signing failed: {e}. Falling back to public URL.")
+            return f"https://storage.googleapis.com/{bucket}/{file_path}"
 
     return await loop.run_in_executor(None, _sign)

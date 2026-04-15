@@ -199,6 +199,18 @@ class PasswordResetTokenOut(BaseModel):
     expires_at: datetime
     message:    str
 
+class ResetPasswordRequest(BaseModel):
+    """Request body for applying a password reset token."""
+    token:        str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def password_min_length(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters.")
+        return v
+
 from pydantic import BaseModel, EmailStr, Field
 
 class SystemLogOut(BaseModel):
@@ -423,5 +435,42 @@ class SchoolWithBranchesOut(BaseModel):
     branches:    list[BranchOut] = []
 
     model_config = {"from_attributes": True}
+
+class SchoolCreateRequest(BaseModel):
+    """Request body for POST /api/admin/schools"""
+    code: str
+    name: str
+
+    @field_validator("code")
+    @classmethod
+    def normalise_code(cls, v: str) -> str:
+        return v.strip().lower()
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("name must not be empty.")
+        return v
+
+class BranchCreateRequest(BaseModel):
+    """Request body for POST /api/admin/branches"""
+    school_id: int
+    code:      str
+    name:      str
+
+    @field_validator("code")
+    @classmethod
+    def normalise_code(cls, v: str) -> str:
+        return v.strip().upper()
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("name must not be empty.")
+        return v
 
 

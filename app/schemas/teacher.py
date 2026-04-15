@@ -37,8 +37,8 @@ class ExamCreateRequest(BaseModel):
     title:                   str
     description:             Optional[str] = None
     duration_minutes:        int
-    negative_marking_factor: float = 0.0
-    passing_marks:           float = 0.0
+    negative_marking_factor: Decimal = Decimal("0.0")
+    passing_marks:           Decimal = Decimal("0.0")
     start_time:              datetime
     end_time:                datetime
 
@@ -65,7 +65,7 @@ class ExamCreateRequest(BaseModel):
 
     @field_validator("negative_marking_factor")
     @classmethod
-    def validate_negative_factor(cls, v: float) -> float:
+    def validate_negative_factor(cls, v: Decimal) -> Decimal:
         if v < 0 or v > 1:
             raise ValueError(
                 "negative_marking_factor must be between 0.0 "
@@ -97,8 +97,8 @@ class ExamUpdateRequest(BaseModel):
     title:                   Optional[str]   = None
     description:             Optional[str]   = None
     duration_minutes:        Optional[int]   = None
-    negative_marking_factor: Optional[float] = None
-    passing_marks:           Optional[float] = None
+    negative_marking_factor: Optional[Decimal] = None
+    passing_marks:           Optional[Decimal] = None
     start_time:              Optional[datetime] = None
     end_time:                Optional[datetime] = None
 
@@ -111,9 +111,9 @@ class ExamOut(BaseModel):
     title:                   str
     description:             Optional[str] = None
     duration_minutes:        int
-    negative_marking_factor: float
-    total_marks:             float
-    passing_marks:           float
+    negative_marking_factor: Decimal
+    total_marks:             Decimal
+    passing_marks:           Decimal
     start_time:              datetime
     end_time:                datetime
     is_published:            bool
@@ -167,7 +167,7 @@ class MCQOptionIn(BaseModel):
 class MCQQuestionCreateRequest(BaseModel):
     """Request body for POST /api/teacher/exams/{id}/questions/mcq"""
     question_text: str
-    marks:         float
+    marks:         Decimal
     order_index:   int = 0
     options:       list[MCQOptionIn]
 
@@ -181,7 +181,7 @@ class MCQQuestionCreateRequest(BaseModel):
 
     @field_validator("marks")
     @classmethod
-    def validate_marks(cls, v: float) -> float:
+    def validate_marks(cls, v: Decimal) -> Decimal:
         if v <= 0:
             raise ValueError("marks must be greater than 0.")
         return v
@@ -219,7 +219,7 @@ class SubjectiveQuestionCreateRequest(BaseModel):
     POST /api/teacher/exams/{id}/questions/subjective
     """
     question_text: str
-    marks:         float
+    marks:         Decimal
     order_index:   int = 0
     word_limit:    Optional[int] = None
 
@@ -233,7 +233,7 @@ class SubjectiveQuestionCreateRequest(BaseModel):
 
     @field_validator("marks")
     @classmethod
-    def validate_marks(cls, v: float) -> float:
+    def validate_marks(cls, v: Decimal) -> Decimal:
         if v <= 0:
             raise ValueError("marks must be greater than 0.")
         return v
@@ -266,7 +266,7 @@ class QuestionOut(BaseModel):
     exam_id:       int
     question_text: str
     question_type: str
-    marks:         float
+    marks:         Decimal
     order_index:   int
     word_limit:    Optional[int] = None
     options:       list[MCQOptionOut] = []
@@ -291,7 +291,7 @@ class StudentAnswerOut(BaseModel):
     question_id:        int
     question_text:      str
     question_type:      str
-    marks_available:    float
+    marks_available:    Decimal
     word_limit:         Optional[int] = None
     # MCQ fields
     selected_option_id: Optional[int]  = None
@@ -302,7 +302,7 @@ class StudentAnswerOut(BaseModel):
     # Subjective fields
     subjective_text:    Optional[str]  = None
     # Grade fields (None if not yet graded)
-    marks_awarded:      Optional[float] = None
+    marks_awarded:      Optional[Decimal] = None
     teacher_feedback:   Optional[str]   = None
     is_graded:          bool = False
 
@@ -321,9 +321,9 @@ class StudentAttemptSummary(BaseModel):
     started_at:         datetime
     submitted_at:       Optional[datetime] = None
     status:             str
-    mcq_marks:          float = 0.0
-    subjective_marks:   float = 0.0
-    total_marks_awarded: float = 0.0
+    mcq_marks:          Decimal = Decimal("0.0")
+    subjective_marks:   Decimal = Decimal("0.0")
+    total_marks_awarded: Decimal = Decimal("0.0")
     is_fully_graded:    bool = False
     violation_count:    int  = 0
 
@@ -335,12 +335,12 @@ class SubjectiveGradeRequest(BaseModel):
     Request body for POST
     /api/teacher/exams/{id}/grade/{attempt_id}/{answer_id}
     """
-    marks_awarded: float
+    marks_awarded: Decimal
     feedback:      Optional[str] = None
 
     @field_validator("marks_awarded")
     @classmethod
-    def validate_marks(cls, v: float) -> float:
+    def validate_marks(cls, v: Decimal) -> Decimal:
         if v < 0:
             raise ValueError("marks_awarded cannot be negative.")
         return v
@@ -354,12 +354,12 @@ class GradeBookEntryOut(BaseModel):
     student_email:           str
     student_name:            str
     attempt_id:              Optional[int]   = None
-    mcq_marks_awarded:       float = 0.0
-    subjective_marks_awarded: float = 0.0
-    negative_marks_deducted: float = 0.0
-    total_marks_awarded:     float = 0.0
-    total_marks_available:   float
-    percentage:              float = 0.0
+    mcq_marks_awarded:       Decimal = Decimal("0.0")
+    subjective_marks_awarded: Decimal = Decimal("0.0")
+    negative_marks_deducted: Decimal = Decimal("0.0")
+    total_marks_awarded:     Decimal = Decimal("0.0")
+    total_marks_available:   Decimal
+    percentage:              Decimal = Decimal("0.0")
     is_pass:                 Optional[bool]  = None
     status:                  str
     # status: 'submitted', 'auto_submitted', 'not_attempted',
@@ -373,8 +373,8 @@ class GradeBookResponse(BaseModel):
     exam_id:              int
     exam_title:           str
     course_code:          str
-    total_marks:          float
-    passing_marks:        float
+    total_marks:          Decimal
+    passing_marks:        Decimal
     is_published:         bool
     results_published:    bool
     entries:              list[GradeBookEntryOut]

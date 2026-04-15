@@ -4,7 +4,7 @@ User, School, Branch, and StudentProfile models for the TestR.
 from enum import Enum
 from typing import List
 from datetime import datetime
-from sqlalchemy import String, Boolean, DateTime, BIGINT, ForeignKey, func, CHAR, CheckConstraint
+from sqlalchemy import String, Boolean, DateTime, Integer, ForeignKey, func, CHAR, CheckConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from core.database import Base
 from models.base import TimestampMixin
@@ -19,7 +19,7 @@ class UserRole(str, Enum):
 class School(Base):
     __tablename__ = "schools"
 
-    id: Mapped[int] = mapped_column(BIGINT, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     code: Mapped[str] = mapped_column(String(10), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
@@ -33,10 +33,10 @@ class School(Base):
 class Branch(Base):
     __tablename__ = "branches"
 
-    id: Mapped[int] = mapped_column(BIGINT, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     code: Mapped[str] = mapped_column(String(10), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
-    school_id: Mapped[int] = mapped_column(BIGINT, ForeignKey("schools.id", ondelete="RESTRICT", onupdate="CASCADE"), nullable=False)
+    school_id: Mapped[int] = mapped_column(Integer, ForeignKey("schools.id", ondelete="RESTRICT", onupdate="CASCADE"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
 
     school: Mapped["School"] = relationship("School", back_populates="branches")
@@ -57,7 +57,7 @@ class User(TimestampMixin, Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(BIGINT, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     email: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[UserRole] = mapped_column(nullable=False)
@@ -94,9 +94,9 @@ class User(TimestampMixin, Base):
 class StudentProfile(Base):
     __tablename__ = "student_profiles"
 
-    user_id: Mapped[int] = mapped_column(BIGINT, ForeignKey("users.id", ondelete="CASCADE", onupdate="CASCADE"), primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE", onupdate="CASCADE"), primary_key=True)
     batch_year: Mapped[str] = mapped_column(CHAR(2), nullable=False)
-    branch_id: Mapped[int] = mapped_column(BIGINT, ForeignKey("branches.id", ondelete="RESTRICT", onupdate="CASCADE"), nullable=False)
+    branch_id: Mapped[int] = mapped_column(Integer, ForeignKey("branches.id", ondelete="RESTRICT", onupdate="CASCADE"), nullable=False)
     roll_number: Mapped[str] = mapped_column(String(10), nullable=False)
 
     user: Mapped["User"] = relationship("User", back_populates="student_profile")

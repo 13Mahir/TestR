@@ -4,7 +4,7 @@ Course and Enrollment models.
 from enum import Enum
 from typing import List
 from datetime import datetime
-from sqlalchemy import String, Boolean, DateTime, BIGINT, ForeignKey, func, Text, CHAR, Enum as SAEnum
+from sqlalchemy import String, Boolean, DateTime, Integer, ForeignKey, func, Text, CHAR, Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from core.database import Base
 from models.base import TimestampMixin
@@ -18,18 +18,18 @@ class CourseMode(str, Enum):
 class Course(TimestampMixin, Base):
     __tablename__ = "courses"
 
-    id: Mapped[int] = mapped_column(BIGINT, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     course_code: Mapped[str] = mapped_column(String(15), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=True)
-    branch_id: Mapped[int] = mapped_column(BIGINT, ForeignKey("branches.id", ondelete="RESTRICT", onupdate="CASCADE"), nullable=False)
+    branch_id: Mapped[int] = mapped_column(Integer, ForeignKey("branches.id", ondelete="RESTRICT", onupdate="CASCADE"), nullable=False)
     year: Mapped[str] = mapped_column(CHAR(2), nullable=False)
     mode: Mapped[CourseMode] = mapped_column(
         SAEnum(CourseMode, values_callable=lambda e: [m.value for m in e]),
         nullable=False,
     )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    created_by: Mapped[int] = mapped_column(BIGINT, ForeignKey("users.id", ondelete="RESTRICT", onupdate="CASCADE"), nullable=False)
+    created_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="RESTRICT", onupdate="CASCADE"), nullable=False)
 
     branch: Mapped["Branch"] = relationship("Branch")
     creator: Mapped["User"] = relationship("User", foreign_keys=[created_by])
@@ -44,11 +44,11 @@ class Course(TimestampMixin, Base):
 class CourseEnrollment(Base):
     __tablename__ = "course_enrollments"
 
-    id: Mapped[int] = mapped_column(BIGINT, primary_key=True, autoincrement=True)
-    course_id: Mapped[int] = mapped_column(BIGINT, ForeignKey("courses.id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False)
-    student_id: Mapped[int] = mapped_column(BIGINT, ForeignKey("users.id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    course_id: Mapped[int] = mapped_column(Integer, ForeignKey("courses.id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False)
+    student_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False)
     enrolled_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
-    enrolled_by: Mapped[int] = mapped_column(BIGINT, ForeignKey("users.id", ondelete="RESTRICT", onupdate="CASCADE"), nullable=False)
+    enrolled_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="RESTRICT", onupdate="CASCADE"), nullable=False)
 
     course: Mapped["Course"] = relationship("Course", back_populates="enrollments")
     student: Mapped["User"] = relationship("User", foreign_keys=[student_id], back_populates="enrollments")
@@ -61,11 +61,11 @@ class CourseEnrollment(Base):
 class CourseAssignment(Base):
     __tablename__ = "course_assignments"
 
-    id: Mapped[int] = mapped_column(BIGINT, primary_key=True, autoincrement=True)
-    course_id: Mapped[int] = mapped_column(BIGINT, ForeignKey("courses.id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False)
-    teacher_id: Mapped[int] = mapped_column(BIGINT, ForeignKey("users.id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    course_id: Mapped[int] = mapped_column(Integer, ForeignKey("courses.id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False)
+    teacher_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False)
     assigned_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
-    assigned_by: Mapped[int] = mapped_column(BIGINT, ForeignKey("users.id", ondelete="RESTRICT", onupdate="CASCADE"), nullable=False)
+    assigned_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="RESTRICT", onupdate="CASCADE"), nullable=False)
 
     course: Mapped["Course"] = relationship("Course", back_populates="assignments")
     teacher: Mapped["User"] = relationship("User", foreign_keys=[teacher_id], back_populates="assignments")

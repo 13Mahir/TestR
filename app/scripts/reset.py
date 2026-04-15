@@ -16,8 +16,12 @@ async def reset_database():
     """
     print("Connecting to the database...")
     async with engine.begin() as conn:
-        print("Disabling foreign key checks...")
-        await conn.execute(text("SET FOREIGN_KEY_CHECKS = 0;"))
+        if engine.dialect.name == "mysql":
+            print("Disabling foreign key checks (MySQL)...")
+            await conn.execute(text("SET FOREIGN_KEY_CHECKS = 0;"))
+        elif engine.dialect.name == "sqlite":
+            print("Disabling foreign key checks (SQLite)...")
+            await conn.execute(text("PRAGMA foreign_keys = OFF;"))
         
         # We need to get the table names from the metadata
         # sorted_tables gives them in dependency order
@@ -25,8 +29,12 @@ async def reset_database():
             print(f"Dropping table {table.name}...")
             await conn.execute(text(f"DROP TABLE IF EXISTS {table.name};"))
             
-        print("Re-enabling foreign key checks...")
-        await conn.execute(text("SET FOREIGN_KEY_CHECKS = 1;"))
+        if engine.dialect.name == "mysql":
+            print("Re-enabling foreign key checks (MySQL)...")
+            await conn.execute(text("SET FOREIGN_KEY_CHECKS = 1;"))
+        elif engine.dialect.name == "sqlite":
+            print("Re-enabling foreign key checks (SQLite)...")
+            await conn.execute(text("PRAGMA foreign_keys = ON;"))
         
         print("Creating all tables based on models...")
         await conn.run_sync(Base.metadata.create_all)

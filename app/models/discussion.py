@@ -2,7 +2,7 @@
 Models for the Discussion Forum.
 """
 from typing import List, TYPE_CHECKING, Optional
-from sqlalchemy import String, Boolean, BIGINT, ForeignKey, Text, CHAR
+from sqlalchemy import String, Boolean, Integer, ForeignKey, Text, CHAR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from core.database import Base
 from models.base import TimestampMixin
@@ -14,16 +14,16 @@ if TYPE_CHECKING:
 class DiscussionPost(TimestampMixin, Base):
     __tablename__ = "discussion_posts"
 
-    id: Mapped[int] = mapped_column(BIGINT, primary_key=True, autoincrement=True)
-    author_id: Mapped[int] = mapped_column(BIGINT, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    author_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     body: Mapped[str] = mapped_column(Text, nullable=False)
     is_pinned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Selective Access Restrictions
-    restrict_school_id: Mapped[Optional[int]] = mapped_column(BIGINT, ForeignKey("schools.id"), nullable=True)
-    restrict_branch_id: Mapped[Optional[int]] = mapped_column(BIGINT, ForeignKey("branches.id"), nullable=True)
+    restrict_school_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("schools.id"), nullable=True)
+    restrict_branch_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("branches.id"), nullable=True)
     restrict_batch_year: Mapped[Optional[str]] = mapped_column(CHAR(2), nullable=True)
     restrict_emails: Mapped[Optional[str]] = mapped_column(Text, nullable=True) # JSON list as string
 
@@ -36,9 +36,9 @@ class DiscussionPost(TimestampMixin, Base):
 class DiscussionReply(TimestampMixin, Base):
     __tablename__ = "discussion_replies"
 
-    id: Mapped[int] = mapped_column(BIGINT, primary_key=True, autoincrement=True)
-    post_id: Mapped[int] = mapped_column(BIGINT, ForeignKey("discussion_posts.id", ondelete="CASCADE"), nullable=False)
-    author_id: Mapped[int] = mapped_column(BIGINT, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    post_id: Mapped[int] = mapped_column(Integer, ForeignKey("discussion_posts.id", ondelete="CASCADE"), nullable=False)
+    author_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     body: Mapped[str] = mapped_column(Text, nullable=False)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 

@@ -263,18 +263,12 @@ async def start_attempt(
     """
     ip = _get_ip(request)
 
-    attempt, error = await start_exam_attempt(
+    attempt = await start_exam_attempt(
         db=db,
         student_id=student.id,
         exam_id=exam_id,
         ip_address=ip,
     )
-
-    if error:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=error,
-        )
 
     # Log the attempt start
     await log_ip_event(
@@ -284,6 +278,8 @@ async def start_attempt(
         email_attempted=student.email,
         user_id=student.id,
     )
+
+    await db.commit()
 
     return {
         "attempt_id": attempt.id,
@@ -394,19 +390,15 @@ async def save_student_answer(
 
     Returns immediately — answer persisted in DB.
     """
-    ok, msg = await save_answer(
+    await save_answer(
         db=db,
         attempt_id=attempt_id,
         question_id=question_id,
         selected_option_id=selected_option_id,
         subjective_text=subjective_text,
     )
-    if not ok:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=msg,
-        )
-    return {"message": msg}
+    await db.commit()
+    return {"message": "Answer saved."}
 
 
 # ── POST /api/student/attempts/{attempt_id}/submit ────────────────
@@ -439,18 +431,17 @@ async def submit_exam_attempt(
 
     Returns summary of the submission.
     """
-    ok, msg = await submit_attempt(
+    await submit_attempt(
         db=db,
         attempt_id=attempt_id,
         student_id=student.id,
         auto_submit=auto_submit,
     )
-    if not ok:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=msg,
-        )
-    return {"message": msg, "attempt_id": attempt_id}
+    await db.commit()
+    return {
+        "message": "Exam submitted successfully." if not auto_submit else "Exam auto-submitted — time expired.",
+        "attempt_id": attempt_id
+    }
 
 
 # ── GET /api/student/attempts/{attempt_id}/status ────────────────
@@ -543,6 +534,7 @@ async def log_violation(
         violation_type=violation_type,
         details=details,
     )
+    await db.commit()
     return {"logged": True}
 
 
@@ -630,6 +622,8 @@ async def upload_snapshot(
     )
     db.add(snapshot)
     await db.flush()
+
+    await db.commit()
 
     return {"stored": True, "gcs_path": gcs_path}
 

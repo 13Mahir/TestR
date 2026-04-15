@@ -134,7 +134,7 @@ async def create_exam_endpoint(
 
     Writes system_log: event_type='exam_created'.
     """
-    exam, error = await create_exam(
+    exam = await create_exam(
         db=db,
         course_id=body.course_id,
         teacher_id=teacher.id,
@@ -146,12 +146,6 @@ async def create_exam_endpoint(
         start_time=body.start_time,
         end_time=body.end_time,
     )
-
-    if error:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=error,
-        )
 
     await write_system_log(
         db=db,
@@ -169,6 +163,7 @@ async def create_exam_endpoint(
     )
 
     exam_dict = await get_exam_by_id(db=db, exam_id=exam.id)
+    await db.commit()
     return ExamOut(**exam_dict)
 
 
@@ -270,17 +265,12 @@ async def update_exam_endpoint(
     Cannot update a published exam.
     Only provided (non-None) fields are updated.
     """
-    ok, msg = await update_exam(
+    await update_exam(
         db=db,
         exam_id=exam_id,
         teacher_id=teacher.id,
         **body.model_dump(exclude_none=True),
     )
-    if not ok:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=msg,
-        )
 
     await db.commit()
     exam_dict = await get_exam_by_id(db=db, exam_id=exam_id)
@@ -302,18 +292,13 @@ async def delete_exam_endpoint(
     Deletes an exam. Only allowed if unpublished and
     no student attempts exist.
     """
-    ok, msg = await delete_exam(
+    await delete_exam(
         db=db,
         exam_id=exam_id,
         teacher_id=teacher.id,
     )
-    if not ok:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=msg,
-        )
     await db.commit()
-    return {"message": msg}
+    return {"message": "Exam deleted successfully."}
 
 
 # ── POST /api/teacher/exams/{exam_id}/publish ─────────────────────
@@ -342,16 +327,11 @@ async def publish_exam_endpoint(
     Writes system_log: event_type='exam_published'.
     Sends in-app notification to all enrolled students.
     """
-    ok, msg = await publish_exam(
+    await publish_exam(
         db=db,
         exam_id=exam_id,
         teacher_id=teacher.id,
     )
-    if not ok:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=msg,
-        )
 
     # Load exam for logging + notifications
     exam_dict = await get_exam_by_id(db=db, exam_id=exam_id)
@@ -399,8 +379,10 @@ async def publish_exam_endpoint(
             link="/student/exams"
         )
 
+    await db.commit()
+
     return {
-        "message": msg,
+        "message": "Exam published successfully.",
         "exam_id": exam_id,
         "notified_students": len(student_ids),
     }
@@ -460,7 +442,7 @@ async def add_mcq(
     Exactly one option must be marked is_correct=True.
     Recomputes exam.total_marks automatically.
     """
-    question, error = await add_mcq_question(
+    question = await add_mcq_question(
         db=db,
         exam_id=exam_id,
         teacher_id=teacher.id,
@@ -469,12 +451,6 @@ async def add_mcq(
         order_index=body.order_index,
         options=[o.model_dump() for o in body.options],
     )
-
-    if error:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=error,
-        )
 
     # Return the created question with options
     questions = await get_exam_questions(
@@ -486,6 +462,8 @@ async def add_mcq(
 
     # Also return updated total_marks
     exam_dict = await get_exam_by_id(db=db, exam_id=exam_id)
+
+    await db.commit()
 
     return {
         "question":    created,
@@ -512,7 +490,7 @@ async def add_subjective(
     Optional word_limit constrains the student's answer.
     Recomputes exam.total_marks automatically.
     """
-    question, error = await add_subjective_question(
+    question = await add_subjective_question(
         db=db,
         exam_id=exam_id,
         teacher_id=teacher.id,
@@ -522,13 +500,9 @@ async def add_subjective(
         word_limit=body.word_limit,
     )
 
-    if error:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=error,
-        )
-
     exam_dict = await get_exam_by_id(db=db, exam_id=exam_id)
+
+    await db.commit()
 
     return {
         "question": {
@@ -561,17 +535,13 @@ async def delete_question_endpoint(
     Deletes a question. Only allowed on unpublished exams.
     Recomputes total_marks after deletion.
     """
-    ok, msg = await delete_question(
+    await delete_question(
         db=db,
         question_id=question_id,
         teacher_id=teacher.id,
     )
-    if not ok:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=msg,
-        )
-    return {"message": msg}
+    await db.commit()
+    return {"message": "Question deleted successfully."}
 
 
 # ── GET /api/teacher/exams/{exam_id}/attempts ─────────────────────
@@ -693,17 +663,7 @@ async def submit_grade(
 
     marks_awarded must be >= 0 and <= question's available marks.
     """
-    from services.exam_service import verify_teacher_owns_exam
-    exam = await verify_teacher_owns_exam(
-        db, teacher.id, exam_id
-    )
-    if exam is None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Exam not found or you do not own it.",
-        )
-
-    ok, msg = await grade_subjective_answer(
+    await grade_subjective_answer(
         db=db,
         answer_id=answer_id,
         teacher_id=teacher.id,
@@ -711,13 +671,8 @@ async def submit_grade(
         feedback=body.feedback,
     )
 
-    if not ok:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=msg,
-        )
-
-    return {"message": msg}
+    await db.commit()
+    return {"message": "Grade submitted successfully."}
 
 
 # ── POST /api/teacher/exams/{exam_id}/publish-results ────────────
@@ -742,17 +697,11 @@ async def publish_results_endpoint(
 
     Writes system_log: event_type='results_published'.
     """
-    ok, msg, count = await publish_results(
+    count = await publish_results(
         db=db,
         exam_id=exam_id,
         teacher_id=teacher.id,
     )
-
-    if not ok:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=msg,
-        )
 
     # System log
     from sqlalchemy import select
@@ -809,7 +758,8 @@ async def publish_results_endpoint(
             link="/student/transcript"
         )
 
-    return {"message": msg, "finalised_count": count}
+    await db.commit()
+    return {"message": "Results published successfully.", "finalised_count": count}
 
 
 # ── GET /api/teacher/attempts/{attempt_id}/violations ───────────

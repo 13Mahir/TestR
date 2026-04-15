@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
 from core.dependencies import get_current_user, require_password_not_reset_pending
+from core.exceptions import UnauthorizedException, ForbiddenException
 from core.security import (
     verify_password,
     set_auth_cookies,
@@ -57,10 +58,13 @@ def _get_client_ip(request: Request) -> str:
 
 # ── POST /api/auth/login ──────────────────────────────────────────────────────
 
+from core.rate_limiter import rate_limit
+
 @router.post(
     "/login",
     response_model=LoginResponse,
     summary="Authenticate and receive HttpOnly session cookies.",
+    dependencies=[Depends(rate_limit(limit=5, window_seconds=60, action="login"))],
 )
 async def login(
     body:     LoginRequest,
@@ -100,10 +104,7 @@ async def login(
             email_attempted=body.email,
             user_id=None,
         )
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password.",
-        )
+        raise UnauthorizedException("Invalid email or password.")
 
     # Account deactivated
     if not user.is_active:
@@ -114,10 +115,7 @@ async def login(
             email_attempted=body.email,
             user_id=user.id,
         )
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Account is deactivated. Contact an administrator.",
-        )
+        raise UnauthorizedException("Account is deactivated. Contact an administrator.")
 
     # Create session (deletes existing session → concurrent login prevention)
     access_token, refresh_token = await create_user_session(
@@ -137,6 +135,8 @@ async def login(
 
     # Set cookies on the response object
     set_auth_cookies(response, access_token, refresh_token)
+
+    await db.commit()
 
     return LoginResponse(
         message="Login successful.",
@@ -182,6 +182,8 @@ async def logout(
 
     clear_auth_cookies(response)
 
+    await db.commit()
+
     return MessageResponse(message="Logged out successfully.")
 
 
@@ -191,6 +193,7 @@ async def logout(
     "/refresh",
     response_model=RefreshResponse,
     summary="Use the refresh token cookie to obtain a new access token.",
+    dependencies=[Depends(rate_limit(limit=20, window_seconds=60, action="refresh"))],
 )
 async def refresh_tokens(
     request:  Request,
@@ -214,30 +217,18 @@ async def refresh_tokens(
 
     raw_token = get_token_from_request(request, token_type="refresh")
     if not raw_token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Refresh token missing.",
-        )
+        raise UnauthorizedException("Refresh token missing.")
 
     payload = decode_token(raw_token)
     if payload is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Refresh token invalid or expired.",
-        )
+        raise UnauthorizedException("Refresh token invalid or expired.")
 
     if payload.get("type") != "refresh":
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token type.",
-        )
+        raise UnauthorizedException("Invalid token type.")
 
     jti = payload.get("jti")
     if not jti:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Malformed token.",
-        )
+        raise UnauthorizedException("Malformed token.")
 
     # Find session by refresh jti
     result = await db.execute(
@@ -247,10 +238,7 @@ async def refresh_tokens(
     )
     session: ActiveSession | None = result.scalar_one_or_none()
     if session is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Session not found. Please log in again.",
-        )
+        raise UnauthorizedException("Session not found. Please log in again.")
 
     # Load user
     user_result = await db.execute(
@@ -258,10 +246,7 @@ async def refresh_tokens(
     )
     user: User | None = user_result.scalar_one_or_none()
     if user is None or not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found or deactivated.",
-        )
+        raise UnauthorizedException("User not found or deactivated.")
 
     # Rotate tokens
     new_access, new_refresh = await rotate_session_tokens(
@@ -272,6 +257,8 @@ async def refresh_tokens(
     )
 
     set_auth_cookies(response, new_access, new_refresh)
+
+    await db.commit()
 
     return RefreshResponse(message="Tokens refreshed successfully.")
 
@@ -344,10 +331,8 @@ async def change_password(
     )
 
     if not success:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=message,
-        )
+        from core.exceptions import ValidationException
+        raise ValidationException(message)
 
     # Rotate session tokens so the old access token (which may be
     # cached in the browser) is invalidated.
@@ -365,5 +350,7 @@ async def change_password(
             ip_address=ip,
         )
         set_auth_cookies(response, new_access, new_refresh)
+
+    await db.commit()
 
     return MessageResponse(message=message)

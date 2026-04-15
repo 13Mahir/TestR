@@ -1,0 +1,39 @@
+version: "3.8"
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: testr_db
+    restart: always
+    environment:
+      MYSQL_DATABASE: testr
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_USER: testr_user
+      MYSQL_PASSWORD: testr_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  api:
+    build: .
+    container_name: testr_api
+    depends_on:
+      - db
+    env_file:
+      - app/.env
+    environment:
+      - DB_HOST=db
+      - DB_PORT=3306
+      - DB_NAME=testr
+      - DB_USER=testr_user
+      - DB_PASSWORD=testr_password
+      - PORT=8080
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./app:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8080 --reload
+
+volumes:
+  mysql_data:

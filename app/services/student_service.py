@@ -8,15 +8,18 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import select, func, and_, or_, update as sa_update
+from sqlalchemy import select, func, and_, or_, case, update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.utils import ensure_utc
+from core.exceptions import (
+    NotFoundException, ForbiddenException, ValidationException, ConflictException
+)
 from models import (
     Course, CourseEnrollment, Branch,
     Exam, ExamAttempt, ExamResult, Question,
     AttemptStatus, Answer, MCQOption, QuestionType,
-    ProctorViolation,
+    ProctorViolation, SubjectiveGrade,
 )
 
 
@@ -30,69 +33,61 @@ async def get_enrolled_courses(
     Returns all courses the student is enrolled in with
     upcoming and completed exam counts.
     """
+    now = datetime.now(timezone.utc)
+    
+    # Subquery for upcoming exams count
+    upcoming_sub = (
+        select(Exam.course_id, func.count(Exam.id).label("upcoming_count"))
+        .where(and_(Exam.is_published == True, Exam.end_time > now))
+        .group_by(Exam.course_id)
+        .subquery()
+    )
+    
+    # Subquery for completed exams count
+    completed_sub = (
+        select(Exam.course_id, func.count(ExamAttempt.id).label("completed_count"))
+        .join(ExamAttempt, Exam.id == ExamAttempt.exam_id)
+        .where(and_(
+            ExamAttempt.student_id == student_id,
+            ExamAttempt.status.in_([AttemptStatus.submitted, AttemptStatus.auto_submitted])
+        ))
+        .group_by(Exam.course_id)
+        .subquery()
+    )
+
     result = await db.execute(
         select(
             Course,
             Branch.code.label("branch_code"),
             CourseEnrollment.enrolled_at,
+            func.coalesce(upcoming_sub.c.upcoming_count, 0).label("upcoming_count"),
+            func.coalesce(completed_sub.c.completed_count, 0).label("completed_count")
         )
-        .join(CourseEnrollment,
-              CourseEnrollment.course_id == Course.id)
+        .join(CourseEnrollment, CourseEnrollment.course_id == Course.id)
         .join(Branch, Course.branch_id == Branch.id)
+        .outerjoin(upcoming_sub, upcoming_sub.c.course_id == Course.id)
+        .outerjoin(completed_sub, completed_sub.c.course_id == Course.id)
         .where(CourseEnrollment.student_id == student_id)
         .order_by(CourseEnrollment.enrolled_at.desc())
     )
     rows = result.all()
 
-    now = datetime.now(timezone.utc)
-    courses = []
-
-    for course, branch_code, enrolled_at in rows:
-        # Upcoming published exams not yet attempted
-        upcoming_r = await db.execute(
-            select(func.count(Exam.id))
-            .where(
-                and_(
-                    Exam.course_id    == course.id,
-                    Exam.is_published == True,
-                    Exam.end_time     > now,
-                )
-            )
-        )
-        upcoming = upcoming_r.scalar_one()
-
-        # Completed (attempted) exams
-        completed_r = await db.execute(
-            select(func.count(ExamAttempt.id))
-            .join(Exam, ExamAttempt.exam_id == Exam.id)
-            .where(
-                and_(
-                    Exam.course_id         == course.id,
-                    ExamAttempt.student_id == student_id,
-                    ExamAttempt.status.in_([
-                        AttemptStatus.submitted,
-                        AttemptStatus.auto_submitted,
-                    ]),
-                )
-            )
-        )
-        completed = completed_r.scalar_one()
-
-        courses.append({
-            "id":              course.id,
-            "course_code":     course.course_code,
-            "name":            course.name,
-            "description":     course.description,
-            "branch_code":     branch_code,
-            "year":            course.year,
-            "mode":            course.mode.value,
-            "is_active":       course.is_active,
-            "enrolled_at":     ensure_utc(enrolled_at),
-            "upcoming_exams":  upcoming,
-            "completed_exams": completed,
-        })
-
-    return courses
+    return [
+        {
+            "id":              row.Course.id,
+            "course_code":     row.Course.course_code,
+            "name":            row.Course.name,
+            "description":     row.Course.description,
+            "branch_code":     row.branch_code,
+            "year":            row.Course.year,
+            "mode":            row.Course.mode.value,
+            "is_active":       row.Course.is_active,
+            "enrolled_at":     ensure_utc(row.enrolled_at),
+            "upcoming_exams":  row.upcoming_count,
+            "completed_exams": row.completed_count,
+        }
+        for row in rows
+    ]
 
 
 async def verify_student_enrolled(
@@ -165,60 +160,56 @@ async def get_subject_performance(
     """
     Returns per-course performance summary for the student.
     Only includes published results.
+    Optimized to use a single aggregation query.
     """
-    # Get all enrolled courses
-    courses = await get_enrolled_courses(db, student_id)
-    output  = []
-
-    for course in courses:
-        # Get all published results for this course
-        results_r = await db.execute(
-            select(ExamResult, Exam)
-            .join(Exam, ExamResult.exam_id == Exam.id)
-            .where(
-                and_(
-                    ExamResult.student_id  == student_id,
-                    Exam.course_id         == course["id"],
-                    Exam.results_published == True,
-                    ExamResult.published_at != None,
-                )
+    # Query to get stats per course
+    query = (
+        select(
+            Course.course_code,
+            Course.name.label("course_name"),
+            func.count(ExamResult.id).label("exams_attempted"),
+            func.avg(ExamResult.total_marks_awarded).label("avg_awarded"),
+            func.avg(Exam.total_marks).label("avg_total_possible"),
+            func.sum(case((ExamResult.is_pass == True, 1), else_=0)).label("pass_count"),
+            func.sum(case((ExamResult.is_pass == False, 1), else_=0)).label("fail_count"),
+        )
+        .join(CourseEnrollment, CourseEnrollment.course_id == Course.id)
+        .join(Exam, Exam.course_id == Course.id)
+        .join(ExamResult, and_(ExamResult.exam_id == Exam.id, ExamResult.student_id == student_id))
+        .where(
+            and_(
+                CourseEnrollment.student_id == student_id,
+                Exam.results_published      == True,
+                ExamResult.published_at     != None,
             )
         )
-        rows = results_r.all()
+        .group_by(Course.id, Course.course_code, Course.name)
+        .order_by(Course.course_code.asc())
+    )
 
-        if not rows:
-            continue
+    result = await db.execute(query)
+    rows = result.all()
 
-        scores     = []
-        pass_count = 0
-        fail_count = 0
-
-        for er, exam in rows:
-            total   = float(exam.total_marks)
-            awarded = float(er.total_marks_awarded)
-            pct     = (awarded / total * 100) if total > 0 else 0
-            scores.append(pct)
-            if er.is_pass is True:
-                pass_count += 1
-            elif er.is_pass is False:
-                fail_count += 1
-
-        avg_pct   = sum(scores) / len(scores) if scores else 0
-        avg_score = sum(
-            float(er.total_marks_awarded) for er, _ in rows
-        ) / len(rows)
+    output = []
+    for row in rows:
+        # Calculate percentage averages
+        # Note: avg_awarded / avg_total_possible * 100
+        avg_total = float(row.avg_total_possible or 1)
+        avg_awarded = float(row.avg_awarded or 0)
+        avg_pct = (avg_awarded / avg_total * 100) if avg_total > 0 else 0
 
         output.append({
-            "course_code":     course["course_code"],
-            "course_name":     course["name"],
-            "exams_attempted": len(rows),
-            "average_score":   round(avg_score, 2),
+            "course_code":     row.course_code,
+            "course_name":     row.course_name,
+            "exams_attempted": row.exams_attempted,
+            "average_score":   round(avg_awarded, 2),
             "average_pct":     round(avg_pct, 2),
-            "pass_count":      pass_count,
-            "fail_count":      fail_count,
+            "pass_count":      int(row.pass_count or 0),
+            "fail_count":      int(row.fail_count or 0),
         })
 
     return output
+
 
 
 async def get_upcoming_exams(
@@ -471,23 +462,10 @@ async def start_exam_attempt(
     student_id: int,
     exam_id: int,
     ip_address: str,
-) -> tuple[Optional[ExamAttempt], Optional[str]]:
+) -> ExamAttempt:
     """
     Creates a new ExamAttempt row for the student.
-
-    Validates (re-checks eligibility at creation time):
-      - Exam exists and is published.
-      - Student is enrolled in the course.
-      - No existing attempt for this student+exam.
-      - Current time is between start_time and end_time.
-        (The lobby allows entry 5 min early but the attempt
-         can only be created at or after start_time.)
-
-    Returns:
-        (ExamAttempt, None)      on success
-        (None, error_string)     on failure
-
-    Does NOT commit — caller commits.
+    Raises exceptions on failure.
     """
     # Load exam
     exam_r = await db.execute(
@@ -495,16 +473,16 @@ async def start_exam_attempt(
     )
     exam = exam_r.scalar_one_or_none()
     if exam is None:
-        return None, "Exam not found."
+        raise NotFoundException("Exam not found.")
     if not exam.is_published:
-        return None, "Exam is not published."
+        raise ForbiddenException("Exam is not published.")
 
     # Enrollment check
     enrolled = await verify_student_enrolled(
         db, student_id, exam.course_id
     )
     if not enrolled:
-        return None, "You are not enrolled in this course."
+        raise ForbiddenException("You are not enrolled in this course.")
 
     # Duplicate attempt check
     existing_r = await db.execute(
@@ -516,7 +494,7 @@ async def start_exam_attempt(
         )
     )
     if existing_r.scalar_one_or_none() is not None:
-        return None, "You have already attempted this exam."
+        raise ConflictException("You have already attempted or started this exam.")
 
     # Time window check
     now   = datetime.now(timezone.utc)
@@ -529,12 +507,9 @@ async def start_exam_attempt(
 
     if now < start:
         mins = round((start - now).total_seconds() / 60, 1)
-        return None, (
-            f"Exam has not started yet. "
-            f"Starts in {mins} minute(s)."
-        )
+        raise ForbiddenException(f"Exam has not started yet. Starts in {mins} minute(s).")
     if now > end:
-        return None, "The exam window has closed."
+        raise ForbiddenException("The exam window has closed.")
 
     attempt = ExamAttempt(
         exam_id=exam_id,
@@ -545,7 +520,7 @@ async def start_exam_attempt(
     db.add(attempt)
     await db.flush()
     await db.refresh(attempt)
-    return attempt, None
+    return attempt
 
 
 async def get_exam_questions_for_student(
@@ -557,8 +532,10 @@ async def get_exam_questions_for_student(
     is_correct is STRIPPED from all MCQ options so students
     cannot see correct answers via the API.
     """
+    from sqlalchemy.orm import selectinload
     result = await db.execute(
         select(Question)
+        .options(selectinload(Question.options))
         .where(Question.exam_id == exam_id)
         .order_by(Question.order_index.asc(), Question.id.asc())
     )
@@ -570,17 +547,13 @@ async def get_exam_questions_for_student(
             "id":            q.id,
             "question_text": q.question_text,
             "question_type": q.question_type.value,
-            "marks":         float(q.marks),
+            "marks":         q.marks,
             "order_index":   q.order_index,
             "word_limit":    q.word_limit,
             "options":       [],
         }
         if q.question_type == QuestionType.mcq:
-            opts_r = await db.execute(
-                select(MCQOption)
-                .where(MCQOption.question_id == q.id)
-                .order_by(MCQOption.option_label.asc())
-            )
+            # options are already loaded via selectinload
             q_dict["options"] = [
                 {
                     "id":           o.id,
@@ -588,7 +561,7 @@ async def get_exam_questions_for_student(
                     "option_text":  o.option_text,
                     # is_correct intentionally omitted
                 }
-                for o in opts_r.scalars().all()
+                for o in sorted(q.options, key=lambda x: x.option_label)
             ]
         output.append(q_dict)
 
@@ -601,24 +574,10 @@ async def save_answer(
     question_id: int,
     selected_option_id: Optional[int] = None,
     subjective_text: Optional[str] = None,
-) -> tuple[bool, str]:
+) -> None:
     """
     Saves or updates a student's answer for one question.
-
-    Validates:
-      - Attempt is still in_progress.
-      - Question belongs to the attempt's exam.
-      - For MCQ: selected_option_id belongs to question.
-      - Only one of selected_option_id or subjective_text
-        is provided (based on question type).
-
-    Upserts: creates answer if first save, updates if exists.
-
-    Returns:
-        (True, "Answer saved.")
-        (False, error_string)
-
-    Does NOT commit — caller commits.
+    Raises exceptions on failure.
     """
     # Verify attempt is in_progress
     attempt_r = await db.execute(
@@ -626,9 +585,9 @@ async def save_answer(
     )
     attempt = attempt_r.scalar_one_or_none()
     if attempt is None:
-        return False, "Attempt not found."
+        raise NotFoundException("Attempt not found.")
     if attempt.status != AttemptStatus.in_progress:
-        return False, "This attempt has already been submitted."
+        raise ForbiddenException("This attempt has already been submitted.")
 
     # Verify question belongs to exam
     q_r = await db.execute(
@@ -641,27 +600,20 @@ async def save_answer(
     )
     question = q_r.scalar_one_or_none()
     if question is None:
-        return False, "Question not found in this exam."
+        raise NotFoundException("Question not found in this exam.")
 
     # For MCQ: validate option belongs to question
-    if question.question_type == QuestionType.mcq:
-        if selected_option_id is None:
-            # Saving as unanswered — allowed
-            pass
-        else:
-            opt_r = await db.execute(
-                select(MCQOption).where(
-                    and_(
-                        MCQOption.id          == selected_option_id,
-                        MCQOption.question_id == question_id,
-                    )
+    if question.question_type == QuestionType.mcq and selected_option_id is not None:
+        opt_r = await db.execute(
+            select(MCQOption).where(
+                and_(
+                    MCQOption.id          == selected_option_id,
+                    MCQOption.question_id == question_id,
                 )
             )
-            if opt_r.scalar_one_or_none() is None:
-                return False, (
-                    "Selected option does not belong to "
-                    "this question."
-                )
+        )
+        if opt_r.scalar_one_or_none() is None:
+            raise ValidationException("Selected option does not belong to this question.")
 
     # Upsert answer
     existing_r = await db.execute(
@@ -692,7 +644,6 @@ async def save_answer(
         db.add(answer)
 
     await db.flush()
-    return True, "Answer saved."
 
 
 async def submit_attempt(
@@ -700,30 +651,10 @@ async def submit_attempt(
     attempt_id: int,
     student_id: int,
     auto_submit: bool = False,
-) -> tuple[bool, str]:
+) -> None:
     """
     Submits an exam attempt and runs auto-grading for MCQ answers.
-
-    Steps:
-      1. Verify attempt belongs to student and is in_progress.
-      2. Set status = submitted or auto_submitted.
-      3. Set submitted_at = now(UTC).
-      4. Auto-grade all MCQ answers (with negative marking).
-      5. Compute and store ExamResult.
-
-    Negative marking:
-      - Correct MCQ: full marks awarded.
-      - Wrong MCQ: -(marks × negative_marking_factor) deducted.
-      - Unanswered MCQ: 0 marks.
-
-    After this call the student's result is computed but NOT
-    visible until the teacher calls publish-results.
-
-    Returns:
-        (True, success_message)
-        (False, error_string)
-
-    Does NOT commit — caller commits.
+    Optimized MCQ grading to fetch options in bulk (fix PRC-01 / MOD-02).
     """
     # Verify ownership
     attempt_r = await db.execute(
@@ -738,12 +669,12 @@ async def submit_attempt(
     )
     row = attempt_r.one_or_none()
     if row is None:
-        return False, "Attempt not found."
+        raise NotFoundException("Attempt not found.")
 
     attempt, exam = row
 
     if attempt.status != AttemptStatus.in_progress:
-        return False, "This attempt has already been submitted."
+        raise ForbiddenException("This attempt has already been submitted.")
 
     now = datetime.now(timezone.utc)
 
@@ -758,7 +689,7 @@ async def submit_attempt(
     await db.flush()
 
     # ── Auto-grade MCQ answers ────────────────────────────────────
-    factor = float(exam.negative_marking_factor)
+    factor = Decimal(str(exam.negative_marking_factor))
 
     # Get all MCQ questions for this exam
     mcq_qs_r = await db.execute(
@@ -769,75 +700,65 @@ async def submit_attempt(
             )
         )
     )
-    mcq_questions = mcq_qs_r.scalars().all()
-
+    mcq_questions = {q.id: q for q in mcq_qs_r.scalars().all()}
+    
     total_negative = Decimal("0.00")
 
-    for q in mcq_questions:
-        # Find answer for this question
+    if mcq_questions:
+        # Get all existing answers for this attempt
         ans_r = await db.execute(
-            select(Answer).where(
-                and_(
-                    Answer.attempt_id  == attempt_id,
-                    Answer.question_id == q.id,
-                )
-            )
+            select(Answer).where(Answer.attempt_id == attempt_id)
         )
-        answer = ans_r.scalar_one_or_none()
+        answers = {a.question_id: a for a in ans_r.scalars().all()}
 
-        if answer is None or answer.selected_option_id is None:
-            # Unanswered — create/update with 0 marks
-            if answer is None:
-                answer = Answer(
-                    attempt_id=attempt_id,
-                    question_id=q.id,
-                    selected_option_id=None,
-                    subjective_text=None,
-                    is_correct=None,
-                    marks_awarded=Decimal("0.00"),
-                )
-                db.add(answer)
-            else:
+        # Collect selected option IDs for bulk fetch
+        selected_option_ids = [
+            a.selected_option_id for a in answers.values()
+            if a.selected_option_id is not None
+        ]
+
+        # Bulk fetch all selected options to see which are correct (FIX N+1)
+        options_map = {}
+        if selected_option_ids:
+            opts_r = await db.execute(
+                select(MCQOption).where(MCQOption.id.in_(selected_option_ids))
+            )
+            options_map = {o.id: o for o in opts_r.scalars().all()}
+
+        # Grade each MCQ question
+        for q_id, q in mcq_questions.items():
+            answer = answers.get(q_id)
+            
+            if answer is None or answer.selected_option_id is None:
+                # Unanswered
+                if answer is None:
+                    answer = Answer(attempt_id=attempt_id, question_id=q_id)
                 answer.is_correct    = None
                 answer.marks_awarded = Decimal("0.00")
                 db.add(answer)
-            continue
+                continue
 
-        # Check if selected option is correct
-        opt_r = await db.execute(
-            select(MCQOption).where(
-                MCQOption.id == answer.selected_option_id
-            )
-        )
-        option = opt_r.scalar_one_or_none()
+            # Check correctness
+            option = options_map.get(answer.selected_option_id)
+            if option and option.is_correct:
+                answer.is_correct    = True
+                answer.marks_awarded = q.marks
+            else:
+                # Wrong answer
+                penalty = factor * q.marks
+                answer.is_correct    = False
+                answer.marks_awarded = Decimal("0.00")
+                total_negative      += penalty
+            
+            db.add(answer)
 
-        if option and option.is_correct:
-            answer.is_correct    = True
-            answer.marks_awarded = q.marks
-        else:
-            # Wrong answer
-            penalty = Decimal(str(factor)) * q.marks
-            awarded = max(
-                Decimal("0.00"),
-                Decimal("0.00") - penalty
-            )
-            answer.is_correct    = False
-            answer.marks_awarded = awarded
-            total_negative      += penalty
-
-        db.add(answer)
-
-    await db.flush()
+        await db.flush()
 
     # ── Compute and store ExamResult ──────────────────────────────
     from services.result_service import compute_exam_result
 
-    # Store negative_marks_deducted before computing
-    # (compute_exam_result reads existing row)
     existing_result_r = await db.execute(
-        select(ExamResult).where(
-            ExamResult.attempt_id == attempt_id
-        )
+        select(ExamResult).where(ExamResult.attempt_id == attempt_id)
     )
     existing_result = existing_result_r.scalar_one_or_none()
 
@@ -860,11 +781,6 @@ async def submit_attempt(
     await db.flush()
     await compute_exam_result(db=db, attempt_id=attempt_id)
 
-    return True, (
-        "Exam submitted successfully."
-        if not auto_submit
-        else "Exam auto-submitted — time expired."
-    )
 
 
 async def get_attempt_status(

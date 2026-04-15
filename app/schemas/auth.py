@@ -22,9 +22,11 @@ class LoginRequest(BaseModel):
 
     @field_validator("password")
     @classmethod
-    def password_must_not_be_empty(cls, v: str) -> str:
+    def password_validation(cls, v: str) -> str:
         if not v or not v.strip():
             raise ValueError("Password must not be empty.")
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters.")
         return v
 
 
@@ -61,6 +63,12 @@ class ChangePasswordRequest(BaseModel):
     def new_password_strength(cls, v: str) -> str:
         if len(v) < 8:
             raise ValueError("New password must be at least 8 characters.")
+        if not any(c.isupper() for c in v):
+            raise ValueError("Password must contain at least one uppercase letter.")
+        if not any(c.islower() for c in v):
+            raise ValueError("Password must contain at least one lowercase letter.")
+        if not any(c.isdigit() for c in v):
+            raise ValueError("Password must contain at least one digit.")
         return v
 
 

@@ -5,7 +5,7 @@ from sqlalchemy.orm import selectinload, joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 from models import DiscussionPost, DiscussionReply, User, UserRole, School, Branch
 from schemas.discussion import PostCreate, ReplyCreate
-from fastapi import HTTPException, status
+from core.exceptions import NotFoundException, ForbiddenException, ValidationException
 
 async def get_posts(
     db: AsyncSession, 
@@ -124,7 +124,7 @@ async def get_post_detail(db: AsyncSession, post_id: int, user: User) -> Discuss
     post = result.scalar_one_or_none()
     
     if not post:
-        raise HTTPException(status_code=404, detail="Post not found")
+        raise NotFoundException("Post not found")
         
     # Access check on detail view
     if user.role != UserRole.admin and post.author_id != user.id:
@@ -159,7 +159,7 @@ async def get_post_detail(db: AsyncSession, post_id: int, user: User) -> Discuss
                         is_allowed = True
             
             if not is_allowed:
-                raise HTTPException(status_code=403, detail="You do not have permission to view this discussion")
+                raise ForbiddenException("You do not have permission to view this discussion")
 
     return post
 
@@ -168,7 +168,7 @@ async def toggle_pin(db: AsyncSession, post_id: int) -> bool:
     """Toggles the pinned status of a post."""
     post = await db.get(DiscussionPost, post_id)
     if not post or post.is_deleted:
-        raise HTTPException(status_code=404, detail="Post not found")
+        raise NotFoundException("Post not found")
     
     post.is_pinned = not post.is_pinned
     await db.commit()
@@ -176,12 +176,11 @@ async def toggle_pin(db: AsyncSession, post_id: int) -> bool:
 
 async def delete_post(db: AsyncSession, post_id: int, user_id: int, user_role: UserRole):
     """Soft deletes a post and its replies. Only admin or author."""
-    post = await db.get(DiscussionPost, post_id)
     if not post or post.is_deleted:
-        raise HTTPException(status_code=404, detail="Post not found")
+        raise NotFoundException("Post not found")
     
     if user_role != UserRole.admin and post.author_id != user_id:
-        raise HTTPException(status_code=403, detail="Not authorized to delete this post")
+        raise ForbiddenException("Not authorized to delete this post")
     
     post.is_deleted = True
     
@@ -196,7 +195,7 @@ async def create_reply(db: AsyncSession, post_id: int, author_id: int, data: Rep
     # Verify post exists and not deleted
     post = await db.get(DiscussionPost, post_id)
     if not post or post.is_deleted:
-        raise HTTPException(status_code=404, detail="Post not found")
+        raise NotFoundException("Post not found")
         
     reply = DiscussionReply(
         post_id=post_id,
@@ -212,10 +211,10 @@ async def delete_reply(db: AsyncSession, reply_id: int, user_id: int, user_role:
     """Soft deletes a reply. Only admin or author."""
     reply = await db.get(DiscussionReply, reply_id)
     if not reply or reply.is_deleted:
-        raise HTTPException(status_code=404, detail="Reply not found")
+        raise NotFoundException("Reply not found")
     
     if user_role != UserRole.admin and reply.author_id != user_id:
-        raise HTTPException(status_code=403, detail="Not authorized to delete this reply")
+        raise ForbiddenException("Not authorized to delete this reply")
     
     reply.is_deleted = True
     await db.commit()

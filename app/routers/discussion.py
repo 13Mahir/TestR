@@ -13,6 +13,7 @@ from schemas.discussion import (
     ReplyCreate, MessageResponse, PinToggleResponse, 
     PostListOut, ReplyOut
 )
+from core.exceptions import ValidationException, ForbiddenException
 from services import discussion_service as service
 import math
 
@@ -64,15 +65,11 @@ async def create_post(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # Auth: admin or teacher only
-    if current_user.role not in [UserRole.admin, UserRole.teacher]:
-        raise HTTPException(status_code=403, detail="Only admins and teachers can create posts")
-    
     # Validation
     if len(data.title) < 5 or len(data.title) > 255:
-        raise HTTPException(status_code=422, detail="Title must be 5-255 characters")
+        raise ValidationException("Title must be 5-255 characters")
     if len(data.body) < 10 or len(data.body) > 5000:
-        raise HTTPException(status_code=422, detail="Body must be 10-5000 characters")
+        raise ValidationException("Body must be 10-5000 characters")
         
     post = await service.create_post(db, current_user.id, data)
     # Return full detail of the new post
@@ -80,6 +77,7 @@ async def create_post(
     
     is_restricted = any([p.restrict_school_id, p.restrict_branch_id, p.restrict_batch_year, p.restrict_emails])
     
+    await db.commit()
     return PostDetailOut(
         id=p.id,
         title=p.title,
@@ -153,10 +151,13 @@ async def pin_post(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    # toggle_pin in service now handles admin check logic if we wanted, 
+    # but for simplicity we keep role check here or in dependency.
     if current_user.role != UserRole.admin:
-        raise HTTPException(status_code=403, detail="Only admins can pin posts")
+        raise ForbiddenException("Only admins can pin posts")
         
     is_pinned = await service.toggle_pin(db, post_id)
+    await db.commit()
     return PinToggleResponse(
         is_pinned=is_pinned,
         message="Post pinned." if is_pinned else "Post unpinned."
@@ -169,6 +170,7 @@ async def delete_post(
     current_user: User = Depends(get_current_user)
 ):
     await service.delete_post(db, post_id, current_user.id, current_user.role)
+    await db.commit()
     return MessageResponse(message="Post deleted.")
 
 @router.post("/posts/{post_id}/replies", response_model=MessageResponse, status_code=status.HTTP_201_CREATED)
@@ -180,7 +182,7 @@ async def create_reply(
 ):
     # Validation
     if len(data.body) < 2 or len(data.body) > 2000:
-        raise HTTPException(status_code=422, detail="Reply must be 2-2000 characters")
+        raise ValidationException("Reply must be 2-2000 characters")
         
     reply = await service.create_reply(db, post_id, current_user.id, data)
     
@@ -202,6 +204,7 @@ async def create_reply(
             link=f"/discussion/{post_id}"
         )
         
+    await db.commit()
     return MessageResponse(id=reply.id, message="Reply posted.")
 
 @router.delete("/replies/{reply_id}", response_model=MessageResponse)
@@ -211,4 +214,5 @@ async def delete_reply(
     current_user: User = Depends(get_current_user)
 ):
     await service.delete_reply(db, reply_id, current_user.id, current_user.role)
+    await db.commit()
     return MessageResponse(message="Reply deleted.")

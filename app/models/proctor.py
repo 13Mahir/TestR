@@ -3,7 +3,7 @@ Proctoring violation events and snapshots models.
 """
 from enum import Enum
 from datetime import datetime
-from sqlalchemy import String, DateTime, BIGINT, ForeignKey, func
+from sqlalchemy import String, DateTime, Integer, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from core.database import Base
 
@@ -16,8 +16,8 @@ class ViolationType(str, Enum):
 class ProctorViolation(Base):
     __tablename__ = "proctor_violations"
 
-    id: Mapped[int] = mapped_column(BIGINT, primary_key=True, autoincrement=True)
-    attempt_id: Mapped[int] = mapped_column(BIGINT, ForeignKey("exam_attempts.id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    attempt_id: Mapped[int] = mapped_column(Integer, ForeignKey("exam_attempts.id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False)
     violation_type: Mapped[ViolationType] = mapped_column(nullable=False)
     occurred_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
     details: Mapped[str] = mapped_column(String(255), nullable=True)
@@ -30,8 +30,8 @@ class ProctorViolation(Base):
 class ProctorSnapshot(Base):
     __tablename__ = "proctor_snapshots"
 
-    id: Mapped[int] = mapped_column(BIGINT, primary_key=True, autoincrement=True)
-    attempt_id: Mapped[int] = mapped_column(BIGINT, ForeignKey("exam_attempts.id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    attempt_id: Mapped[int] = mapped_column(Integer, ForeignKey("exam_attempts.id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False)
     gcs_path: Mapped[str] = mapped_column(String(500), nullable=False)
     captured_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
 

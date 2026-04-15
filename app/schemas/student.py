@@ -6,6 +6,7 @@ Pydantic schemas for student panel endpoints.
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
+from decimal import Decimal
 
 
 class EnrolledCourseOut(BaseModel):
@@ -32,8 +33,8 @@ class UpcomingExamOut(BaseModel):
     duration_minutes: int
     start_time:       datetime
     end_time:         datetime
-    total_marks:      float
-    passing_marks:    float
+    total_marks:      Decimal
+    passing_marks:    Decimal
     has_attempted:    bool = False
 
     model_config = {"from_attributes": False}
@@ -43,9 +44,9 @@ class RecentResultOut(BaseModel):
     exam_id:          int
     exam_title:       str
     course_code:      str
-    total_marks_awarded:   float
-    total_marks_available: float
-    percentage:       float
+    total_marks_awarded:   Decimal
+    total_marks_available: Decimal
+    percentage:       Decimal
     is_pass:          Optional[bool] = None
     results_published_at: Optional[datetime] = None
 
@@ -56,8 +57,8 @@ class SubjectPerformanceOut(BaseModel):
     course_code:     str
     course_name:     str
     exams_attempted: int
-    average_score:   float
-    average_pct:     float
+    average_score:   Decimal
+    average_pct:     Decimal
     pass_count:      int
     fail_count:      int
 
@@ -68,9 +69,9 @@ class TranscriptEntryOut(BaseModel):
     course_code:     str
     course_name:     str
     exam_title:      str
-    total_marks_awarded:   float
-    total_marks_available: float
-    percentage:      float
+    total_marks_awarded:   Decimal
+    total_marks_available: Decimal
+    percentage:      Decimal
     is_pass:         Optional[bool] = None
     submitted_at:    Optional[datetime] = None
     results_published_at: Optional[datetime] = None
@@ -83,9 +84,9 @@ class ExamLobbyOut(BaseModel):
     title:            str
     course_code:      str
     duration_minutes: int
-    total_marks:      float
-    passing_marks:    float
-    negative_marking_factor: float
+    total_marks:      Decimal
+    passing_marks:    Decimal
+    negative_marking_factor: Decimal
     start_time:       datetime
     end_time:         datetime
     question_count:   int
@@ -95,6 +96,6 @@ class ExamLobbyOut(BaseModel):
     # e.g. "Exam starts in 12 minutes"
     #      "Already attempted"
     #      "Exam window has closed"
-    minutes_until_start: Optional[float] = None
+    minutes_until_start: Optional[Decimal] = None
 
     model_config = {"from_attributes": False}

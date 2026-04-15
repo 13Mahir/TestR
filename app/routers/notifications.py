@@ -66,13 +66,11 @@ async def mark_one_as_read(
     current_user: User = Depends(get_current_user),
 ):
     """Marks a single notification as read."""
-    updated = await mark_notifications_read(
+    await mark_notifications_read(
         db=db,
         user_id=current_user.id,
         notification_ids=[notification_id],
     )
-    if not updated:
-        raise HTTPException(status_code=404, detail="Notification not found or already read")
     
     await db.commit()
     return MarkReadResponse(message="Marked as read.")
@@ -100,13 +98,11 @@ async def delete_one_notification(
     current_user: User = Depends(get_current_user),
 ):
     """Hard delete a specific notification."""
-    deleted = await delete_notification(
+    await delete_notification(
         db=db,
         user_id=current_user.id,
         notification_id=notification_id,
     )
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Notification not found")
     
     await db.commit()
     return {"message": "Notification deleted."}

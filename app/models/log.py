@@ -3,9 +3,14 @@ System event logs and admin audit logs models.
 """
 from enum import Enum
 from datetime import datetime
-from sqlalchemy import String, DateTime, BIGINT, ForeignKey, func, JSON
+from sqlalchemy import String, DateTime, Integer, ForeignKey, func, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from core.database import Base
+
+class LogLevel(str, Enum):
+    INFO = 'INFO'
+    WARNING = 'WARNING'
+    ERROR = 'ERROR'
 
 class SystemLogEventType(str, Enum):
     exam_created = 'exam_created'
@@ -15,14 +20,17 @@ class SystemLogEventType(str, Enum):
     course_created = 'course_created'
     course_activated = 'course_activated'
     course_deactivated = 'course_deactivated'
+    login_success = 'login_success'
+    login_failed = 'login_failed'
 
 # Append-only
 class SystemLog(Base):
     __tablename__ = "system_logs"
 
-    id: Mapped[int] = mapped_column(BIGINT, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     event_type: Mapped[SystemLogEventType] = mapped_column(nullable=False)
-    actor_id: Mapped[int] = mapped_column(BIGINT, ForeignKey("users.id", ondelete="RESTRICT", onupdate="CASCADE"), nullable=False)
+    level: Mapped[LogLevel] = mapped_column(String(10), nullable=False, default=LogLevel.INFO)
+    actor_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="RESTRICT", onupdate="CASCADE"), nullable=False)
     description: Mapped[str] = mapped_column(String(500), nullable=False)
     log_metadata: Mapped[dict] = mapped_column("metadata", JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
@@ -36,9 +44,10 @@ class SystemLog(Base):
 class AuditLog(Base):
     __tablename__ = "audit_logs"
 
-    id: Mapped[int] = mapped_column(BIGINT, primary_key=True, autoincrement=True)
-    admin_id: Mapped[int] = mapped_column(BIGINT, ForeignKey("users.id", ondelete="RESTRICT", onupdate="CASCADE"), nullable=False)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    admin_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="RESTRICT", onupdate="CASCADE"), nullable=False)
     action: Mapped[str] = mapped_column(String(100), nullable=False)
+    level: Mapped[LogLevel] = mapped_column(String(10), nullable=False, default=LogLevel.INFO)
     target_type: Mapped[str] = mapped_column(String(50), nullable=False)
     target_id: Mapped[str] = mapped_column(String(50), nullable=True)
     details: Mapped[dict] = mapped_column(JSON, nullable=True)

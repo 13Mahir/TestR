@@ -3,19 +3,27 @@ Configuration settings block for the TestR.
 """
 from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field
+import urllib.parse
 
 
 class Settings(BaseSettings):
     APP_SECRET_KEY: str
     APP_ENV: str = "development"
     APP_HOST: str = "0.0.0.0"
-    APP_PORT: int = 8080
+    APP_PORT: int = Field(default=8080, alias="PORT")
+    ALLOWED_HOSTS: list[str] = ["*"]
+    TRUST_PROXY: bool = True  # Essential for Cloud Run behind a load balancer
 
-    DB_HOST: Optional[str] = None
+    DB_HOST: Optional[str] = "localhost"
     DB_PORT: int = 3306
     DB_NAME: str = "testr"
-    DB_USER: Optional[str] = None
-    DB_PASSWORD: str = ""
+    DB_USER: Optional[str] = "root"
+    DB_PASSWORD: Optional[str] = ""
+    JWT_ALGORITHM: str = "HS256"
+
+    # CORS Settings
+    CORS_ORIGINS: list[str] = ["*"]
 
     # Railway Auto-injected variables for seamless deployment
     MYSQLHOST: Optional[str] = None
@@ -41,16 +49,25 @@ class Settings(BaseSettings):
 
     @property
     def db_url(self) -> str:
-        """Assembles the asyncio MySQL connection string."""
-        import urllib.parse
-        host = self.MYSQLHOST or self.DB_HOST or "127.0.0.1"
-        port = self.MYSQLPORT or self.DB_PORT
-        db_name = self.MYSQLDATABASE or self.DB_NAME
+        # Priority: Railway/Custom Variables -> Default Settings
+        host = self.MYSQLHOST or self.DB_HOST or "localhost"
+        port = self.MYSQLPORT or self.DB_PORT or 3306
+        db_name = self.MYSQLDATABASE or self.DB_NAME or "testr"
         user = self.MYSQLUSER or self.DB_USER or "root"
         password = self.MYSQLPASSWORD or self.DB_PASSWORD or ""
-        
-        # Ensure password is URL encoded for the connection string
+
         pw = urllib.parse.quote_plus(password)
+        
+        if host == "sqlite":
+            return f"sqlite+aiosqlite:///{db_name}.db"
+
+        # Detect Cloud SQL connection (contains colon but isn't a URL)
+        # Cloud Run format: project:region:instance
+        if ":" in host and not host.startswith(("http://", "https://")):
+            socket_path = host if host.startswith("/cloudsql/") else f"/cloudsql/{host}"
+            return f"mysql+aiomysql://{user}:{pw}@/{db_name}?unix_socket={socket_path}"
+
+        # Standard TCP connection
         return f"mysql+aiomysql://{user}:{pw}@{host}:{port}/{db_name}"
 
     @property

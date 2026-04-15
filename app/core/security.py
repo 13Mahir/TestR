@@ -17,7 +17,6 @@ from core.config import settings
 # ── Constants ────────────────────────────────────────────────────────────────
 ACCESS_COOKIE  = "access_token"
 REFRESH_COOKIE = "refresh_token"
-ALGORITHM      = "HS256"
 
 # ── Password hashing ─────────────────────────────────────────────────────────
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -63,7 +62,7 @@ def create_access_token(data: dict) -> tuple[str, str]:
         "exp":  expires,
     }
 
-    token = jwt.encode(payload, settings.APP_SECRET_KEY, algorithm=ALGORITHM)
+    token = jwt.encode(payload, settings.APP_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
     return token, jti
 
 
@@ -92,7 +91,7 @@ def create_refresh_token(data: dict) -> tuple[str, str]:
         "exp":  expires,
     }
 
-    token = jwt.encode(payload, settings.APP_SECRET_KEY, algorithm=ALGORITHM)
+    token = jwt.encode(payload, settings.APP_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
     return token, jti
 
 
@@ -113,7 +112,7 @@ def decode_token(token: str) -> Optional[dict]:
         payload = jwt.decode(
             token,
             settings.APP_SECRET_KEY,
-            algorithms=[ALGORITHM],
+            algorithms=[settings.JWT_ALGORITHM],
         )
         return payload
     except JWTError:
@@ -134,7 +133,7 @@ def set_auth_cookies(
     Cookie attributes:
         httponly  = True          (JS cannot read the cookie)
         secure    = True only in production (False allows HTTP on localhost)
-        samesite  = "lax"        (sent on top-level navigation, blocks CSRF)
+        samesite  = "strict"      (blocks cross-site requests entirely)
         path      = "/"          (available to all routes)
     """
     secure = settings.is_production
@@ -145,7 +144,7 @@ def set_auth_cookies(
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         httponly=True,
         secure=secure,
-        samesite="lax",
+        samesite="strict",
         path="/",
     )
     response.set_cookie(
@@ -154,7 +153,7 @@ def set_auth_cookies(
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
         httponly=True,
         secure=secure,
-        samesite="lax",
+        samesite="strict",
         path="/",
     )
 
@@ -176,7 +175,7 @@ def clear_auth_cookies(response: Response) -> None:
         max_age=0,
         httponly=True,
         secure=secure,
-        samesite="lax",
+        samesite="strict",
         path="/",
     )
     response.set_cookie(
@@ -185,7 +184,7 @@ def clear_auth_cookies(response: Response) -> None:
         max_age=0,
         httponly=True,
         secure=secure,
-        samesite="lax",
+        samesite="strict",
         path="/",
     )
 

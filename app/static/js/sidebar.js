@@ -125,23 +125,20 @@ function buildSidebarHTML(user) {
         </div>
       </div>
 
-      <!-- Navigation -->
+      <!-- Navigation (Scrollable) -->
       <nav class="sidebar-nav" aria-label="Main navigation">
         <ul class="sidebar-nav-list">
           ${navItemsHTML}
         </ul>
       </nav>
 
-      <!-- Spacer -->
-      <div class="sidebar-spacer"></div>
-
       <!-- Bottom actions -->
       <div class="sidebar-bottom">
         <ul class="sidebar-nav-list pb-2">
           <li class="sidebar-nav-item">
             <button
+              id="sidebarThemeBtn"
               class="sidebar-nav-link w-100 text-start border-0 bg-transparent"
-              onclick="window.toggleTheme()"
               title="Toggle theme"
               aria-label="Toggle light/dark theme"
             >
@@ -151,8 +148,8 @@ function buildSidebarHTML(user) {
           </li>
           <li class="sidebar-nav-item">
             <button
+              id="sidebarLogoutBtn"
               class="sidebar-nav-link w-100 text-start border-0 bg-transparent"
-              onclick="window.logout()"
               title="Sign out"
               aria-label="Sign out"
             >
@@ -162,8 +159,8 @@ function buildSidebarHTML(user) {
           </li>
           <li class="sidebar-nav-item">
             <button
+              id="sidebarCollapseBtn"
               class="sidebar-nav-link w-100 text-start border-0 bg-transparent"
-              onclick="window.__sidebarToggle()"
               title="Collapse sidebar"
               aria-label="Collapse sidebar"
             >
@@ -244,16 +241,26 @@ window.__initSidebar = function (user) {
   // Inject sidebar HTML
   mount.innerHTML = buildSidebarHTML(user);
 
-  // Trap scrolling over sidebar so it doesn't scroll the body
-  const sidebarEl = document.getElementById("sidebar");
-  if (sidebarEl) {
-    sidebarEl.addEventListener("wheel", function (e) {
-      e.preventDefault();
-    }, { passive: false });
-    // Also trap touchmove for mobile devices
-    sidebarEl.addEventListener("touchmove", function (e) {
-      e.preventDefault();
-    }, { passive: false });
+  // SECURE EVENT LISTENERS (Required by CSP)
+  const themeBtn = document.getElementById("sidebarThemeBtn");
+  if (themeBtn) {
+    themeBtn.addEventListener("click", function() {
+      if (typeof window.toggleTheme === "function") window.toggleTheme();
+    });
+  }
+
+  const logoutBtn = document.getElementById("sidebarLogoutBtn");
+  if (logoutBtn) {
+    logoutBtn.addEventListener("click", function() {
+      if (typeof window.logout === "function") window.logout();
+    });
+  }
+
+  const collapseBtn = document.getElementById("sidebarCollapseBtn");
+  if (collapseBtn) {
+    collapseBtn.addEventListener("click", function() {
+      if (typeof window.__sidebarToggle === "function") window.__sidebarToggle();
+    });
   }
 
   // Apply correct retraction state immediately

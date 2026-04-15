@@ -284,7 +284,8 @@ body {
 /* ── Navigation ─────────────────────────────────────────────────────────── */
 .sidebar-nav {
   padding: 0.5rem 0;
-  overflow: visible;
+  overflow-y: auto;
+  flex: 1; /* Allow it to take up available space and scroll */
 }
 
 

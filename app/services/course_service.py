@@ -13,6 +13,10 @@ from models import (
     Branch, School, User, StudentProfile,
     UserRole, CourseMode,
 )
+from core.exceptions import (
+    NotFoundException, ForbiddenException, ValidationException, ConflictException
+)
+from core.utils import ensure_utc
 
 
 # ── Course CRUD ───────────────────────────────────────────────────────────────
@@ -26,19 +30,10 @@ async def create_course(
     year: str,
     mode: str,
     created_by_id: int,
-) -> tuple[Optional[Course], Optional[str]]:
+) -> Course:
     """
     Creates a new course.
-
-    Validates:
-      - branch_code exists in branches table
-      - course_code is unique
-
-    Returns:
-        (Course, None)         on success
-        (None, error_string)   on failure
-
-    Does NOT commit — caller commits.
+    Raises exceptions on failure.
     """
     # Validate branch exists
     branch_result = await db.execute(
@@ -46,17 +41,14 @@ async def create_course(
     )
     branch = branch_result.scalar_one_or_none()
     if branch is None:
-        return None, (
-            f"Branch code '{branch_code}' does not exist. "
-            "Add it first via the branches table."
-        )
+        raise NotFoundException(f"Branch code '{branch_code}' does not exist.")
 
     # Check course_code uniqueness
     existing = await db.execute(
         select(Course).where(Course.course_code == course_code)
     )
     if existing.scalar_one_or_none() is not None:
-        return None, f"Course code '{course_code}' already exists."
+        raise ConflictException(f"Course code '{course_code}' already exists.")
 
     course = Course(
         course_code=course_code,
@@ -71,7 +63,7 @@ async def create_course(
     db.add(course)
     await db.flush()
     await db.refresh(course)
-    return course, None
+    return course
 
 
 async def list_courses(
@@ -125,52 +117,53 @@ async def list_courses(
         base_query  = base_query.where(condition)
         count_query = count_query.where(condition)
 
+    # Subquery for enrollment count
+    enroll_sub = (
+        select(CourseEnrollment.course_id, func.count(CourseEnrollment.id).label("enrolled_count"))
+        .group_by(CourseEnrollment.course_id)
+        .subquery()
+    )
+
+    # Subquery for assignment count
+    assign_sub = (
+        select(CourseAssignment.course_id, func.count(CourseAssignment.id).label("assigned_count"))
+        .group_by(CourseAssignment.course_id)
+        .subquery()
+    )
+
     total_result = await db.execute(count_query)
     total = total_result.scalar_one()
 
     rows_result = await db.execute(
         base_query
+        .outerjoin(enroll_sub, enroll_sub.c.course_id == Course.id)
+        .outerjoin(assign_sub, assign_sub.c.course_id == Course.id)
+        .add_columns(
+            func.coalesce(enroll_sub.c.enrolled_count, 0).label("enrolled_count"),
+            func.coalesce(assign_sub.c.assigned_count, 0).label("assigned_count")
+        )
         .order_by(Course.created_at.desc())
         .limit(limit)
         .offset(offset)
     )
     rows = rows_result.all()
 
-    # Build course dicts with counts
-    course_dicts = []
-    for row in rows:
-        course      = row[0]
-        branch_code_val = row[1]
-
-        # Enrollment count
-        enroll_result = await db.execute(
-            select(func.count(CourseEnrollment.id))
-            .where(CourseEnrollment.course_id == course.id)
-        )
-        enrolled_count = enroll_result.scalar_one()
-
-        # Assignment count
-        assign_result = await db.execute(
-            select(func.count(CourseAssignment.id))
-            .where(CourseAssignment.course_id == course.id)
-        )
-        assigned_count = assign_result.scalar_one()
-
-        course_dicts.append({
-            "id":                course.id,
-            "course_code":       course.course_code,
-            "name":              course.name,
-            "description":       course.description,
-            "branch_code":       branch_code_val,
-            "year":              course.year,
-            "mode":              course.mode.value,
-            "is_active":         course.is_active,
-            "created_at":        course.created_at,
-            "enrolled_students": enrolled_count,
-            "assigned_teachers": assigned_count,
-        })
-
-    return course_dicts, total
+    return [
+        {
+            "id":                row.Course.id,
+            "course_code":       row.Course.course_code,
+            "name":              row.Course.name,
+            "description":       row.Course.description,
+            "branch_code":       row.branch_code,
+            "year":              row.Course.year,
+            "mode":              row.Course.mode.value,
+            "is_active":         row.Course.is_active,
+            "created_at":        ensure_utc(row.Course.created_at),
+            "enrolled_students": row.enrolled_count,
+            "assigned_teachers": row.assigned_count,
+        }
+        for row in rows
+    ], total
 
 
 async def get_course_by_id(
@@ -181,8 +174,27 @@ async def get_course_by_id(
     Returns a single course dict (same shape as list_courses items)
     or None if not found.
     """
+    # Subquery for enrollment count
+    enroll_sub = (
+        select(func.count(CourseEnrollment.id))
+        .where(CourseEnrollment.course_id == course_id)
+        .scalar_subquery()
+    )
+
+    # Subquery for assignment count
+    assign_sub = (
+        select(func.count(CourseAssignment.id))
+        .where(CourseAssignment.course_id == course_id)
+        .scalar_subquery()
+    )
+
     result = await db.execute(
-        select(Course, Branch.code.label("branch_code"))
+        select(
+            Course,
+            Branch.code.label("branch_code"),
+            enroll_sub.label("enrolled_count"),
+            assign_sub.label("assigned_count")
+        )
         .join(Branch, Course.branch_id == Branch.id)
         .where(Course.id == course_id)
     )
@@ -190,30 +202,18 @@ async def get_course_by_id(
     if row is None:
         return None
 
-    course         = row[0]
-    branch_code    = row[1]
-
-    enroll_result = await db.execute(
-        select(func.count(CourseEnrollment.id))
-        .where(CourseEnrollment.course_id == course.id)
-    )
-    assigned_result = await db.execute(
-        select(func.count(CourseAssignment.id))
-        .where(CourseAssignment.course_id == course.id)
-    )
-
     return {
-        "id":                course.id,
-        "course_code":       course.course_code,
-        "name":              course.name,
-        "description":       course.description,
-        "branch_code":       branch_code,
-        "year":              course.year,
-        "mode":              course.mode.value,
-        "is_active":         course.is_active,
-        "created_at":        course.created_at,
-        "enrolled_students": enroll_result.scalar_one(),
-        "assigned_teachers": assigned_result.scalar_one(),
+        "id":                row.Course.id,
+        "course_code":       row.Course.course_code,
+        "name":              row.Course.name,
+        "description":       row.Course.description,
+        "branch_code":       row.branch_code,
+        "year":              row.Course.year,
+        "mode":              row.Course.mode.value,
+        "is_active":         row.Course.is_active,
+        "created_at":        ensure_utc(row.Course.created_at),
+        "enrolled_students": row.enrolled_count,
+        "assigned_teachers": row.assigned_count,
     }
 
 
@@ -221,33 +221,25 @@ async def set_course_active(
     db: AsyncSession,
     course_id: int,
     is_active: bool,
-) -> tuple[bool, str]:
+) -> None:
     """
     Activates or deactivates a course.
-
-    Returns:
-        (True, success_message)   if updated
-        (False, error_string)     if course not found or already
-                                  in the requested state
-    Does NOT commit — caller commits.
+    Raises exceptions on failure.
     """
     result = await db.execute(
         select(Course).where(Course.id == course_id)
     )
     course = result.scalar_one_or_none()
     if course is None:
-        return False, f"Course with id {course_id} not found."
+        raise NotFoundException(f"Course with id {course_id} not found.")
 
     if course.is_active == is_active:
         state = "active" if is_active else "inactive"
-        return False, f"Course is already {state}."
+        raise ValidationException(f"Course is already {state}.")
 
     course.is_active = is_active
     db.add(course)
     await db.flush()
-
-    state = "activated" if is_active else "deactivated"
-    return True, f"Course '{course.course_code}' {state} successfully."
 
 
 # ── Student enrollment ────────────────────────────────────────────────────────
@@ -257,20 +249,10 @@ async def enroll_student_single(
     course_id: int,
     student_email: str,
     enrolled_by_id: int,
-) -> tuple[bool, str]:
+) -> None:
     """
     Enrolls a single student into a course by email.
-
-    Validates:
-      - Course exists and is active
-      - User exists and is a student
-      - Not already enrolled
-
-    Returns:
-        (True, success_message)
-        (False, error_string)
-
-    Does NOT commit — caller commits.
+    Raises exceptions on failure.
     """
     # Validate course
     course_result = await db.execute(
@@ -278,9 +260,9 @@ async def enroll_student_single(
     )
     course = course_result.scalar_one_or_none()
     if course is None:
-        return False, f"Course {course_id} not found."
+        raise NotFoundException(f"Course {course_id} not found.")
     if not course.is_active:
-        return False, "Cannot enroll into an inactive course."
+        raise ForbiddenException("Cannot enroll into an inactive course.")
 
     # Validate student
     user_result = await db.execute(
@@ -288,11 +270,11 @@ async def enroll_student_single(
     )
     user = user_result.scalar_one_or_none()
     if user is None:
-        return False, f"No user found with email '{student_email}'."
+        raise NotFoundException(f"No user found with email '{student_email}'.")
     if user.role != UserRole.student:
-        return False, f"'{student_email}' is not a student account."
+        raise ValidationException(f"'{student_email}' is not a student account.")
     if not user.is_active:
-        return False, f"Student account '{student_email}' is deactivated."
+        raise ForbiddenException(f"Student account '{student_email}' is deactivated.")
 
     # Check duplicate enrollment
     existing = await db.execute(
@@ -304,7 +286,7 @@ async def enroll_student_single(
         )
     )
     if existing.scalar_one_or_none() is not None:
-        return False, f"'{student_email}' is already enrolled."
+        raise ConflictException(f"'{student_email}' is already enrolled.")
 
     enrollment = CourseEnrollment(
         course_id=course_id,
@@ -313,22 +295,16 @@ async def enroll_student_single(
     )
     db.add(enrollment)
     await db.flush()
-    return True, f"Student '{student_email}' enrolled successfully."
 
 
 async def unenroll_student_single(
     db: AsyncSession,
     course_id: int,
     student_email: str,
-) -> tuple[bool, str]:
+) -> None:
     """
     Removes a single student from a course by email.
-
-    Returns:
-        (True, success_message)
-        (False, error_string)
-
-    Does NOT commit — caller commits.
+    Raises exceptions on failure.
     """
     # Find user
     user_result = await db.execute(
@@ -336,7 +312,7 @@ async def unenroll_student_single(
     )
     user = user_result.scalar_one_or_none()
     if user is None:
-        return False, f"No user found with email '{student_email}'."
+        raise NotFoundException(f"No user found with email '{student_email}'.")
 
     # Find enrollment
     enroll_result = await db.execute(
@@ -349,11 +325,10 @@ async def unenroll_student_single(
     )
     enrollment = enroll_result.scalar_one_or_none()
     if enrollment is None:
-        return False, f"'{student_email}' is not enrolled in this course."
+        raise NotFoundException(f"'{student_email}' is not enrolled in this course.")
 
     await db.delete(enrollment)
     await db.flush()
-    return True, f"Student '{student_email}' unenrolled successfully."
 
 
 async def enroll_students_bulk(
@@ -419,11 +394,22 @@ async def enroll_students_bulk(
             f"{roll_start:03d}-{roll_end:03d}."
         ]
 
-    # Snapshot identifiers before entering the flush loop.
-    # SQLAlchemy expires ORM objects after every flush(), so accessing
-    # profile.user_id inside the loop after a flush would silently
-    # reuse stale/expired data. Capture what we need upfront.
+    # Snapshot identifiers
     profile_pairs = [(p.user_id, p.roll_number) for p in profiles]
+    user_ids = [uid for uid, _ in profile_pairs]
+
+    # Pre-fetch user status
+    users_r = await db.execute(
+        select(User.id, User.is_active).where(User.id.in_(user_ids))
+    )
+    active_users = {uid for uid, is_act in users_r.all() if is_act}
+
+    # Pre-fetch existing enrollments
+    existing_r = await db.execute(
+        select(CourseEnrollment.student_id)
+        .where(and_(CourseEnrollment.course_id == course_id, CourseEnrollment.student_id.in_(user_ids)))
+    )
+    already_enrolled = {r[0] for r in existing_r.all()}
 
     enrolled = 0
     skipped  = 0
@@ -431,25 +417,11 @@ async def enroll_students_bulk(
     errors   = []
 
     for user_id, roll_number in profile_pairs:
-        # Check if user is active
-        user_result = await db.execute(
-            select(User).where(User.id == user_id)
-        )
-        user = user_result.scalar_one_or_none()
-        if user is None or not user.is_active:
+        if user_id not in active_users:
             skipped += 1
             continue
 
-        # Check duplicate
-        existing = await db.execute(
-            select(CourseEnrollment).where(
-                and_(
-                    CourseEnrollment.course_id  == course_id,
-                    CourseEnrollment.student_id == user_id,
-                )
-            )
-        )
-        if existing.scalar_one_or_none() is not None:
+        if user_id in already_enrolled:
             skipped += 1
             continue
 
@@ -464,9 +436,7 @@ async def enroll_students_bulk(
             enrolled += 1
         except Exception as e:
             failed += 1
-            errors.append(
-                f"Roll {roll_number}: {str(e)}"
-            )
+            errors.append(f"Roll {roll_number}: {str(e)}")
 
     return enrolled, skipped, failed, errors
 
@@ -478,20 +448,11 @@ async def assign_teacher_single(
     course_id: int,
     teacher_email: str,
     assigned_by_id: int,
-) -> tuple[bool, str, Optional[int]]:
+) -> int:
     """
     Assigns a single teacher to a course by email.
-
-    Validates:
-      - Course exists
-      - User exists and is a teacher
-      - Not already assigned
-
-    Returns:
-        (True, success_message)
-        (False, error_string)
-
-    Does NOT commit — caller commits.
+    Raises exceptions on failure.
+    Returns: teacher.id
     """
     # Validate course
     course_result = await db.execute(
@@ -499,19 +460,19 @@ async def assign_teacher_single(
     )
     course = course_result.scalar_one_or_none()
     if course is None:
-        return False, f"Course {course_id} not found."
+        raise NotFoundException(f"Course {course_id} not found.")
 
-    # Validate teacher
+    # Find teacher
     user_result = await db.execute(
         select(User).where(User.email == teacher_email)
     )
     user = user_result.scalar_one_or_none()
     if user is None:
-        return False, f"No user found with email '{teacher_email}'.", None
+        raise NotFoundException(f"No user found with email '{teacher_email}'.")
     if user.role != UserRole.teacher:
-        return False, f"'{teacher_email}' is not a teacher account.", None
+        raise ValidationException(f"'{teacher_email}' is not a teacher account.")
     if not user.is_active:
-        return False, f"Teacher account '{teacher_email}' is deactivated.", None
+        raise ForbiddenException(f"Teacher account '{teacher_email}' is deactivated.")
 
     # Check duplicate assignment
     existing = await db.execute(
@@ -523,7 +484,7 @@ async def assign_teacher_single(
         )
     )
     if existing.scalar_one_or_none() is not None:
-        return False, f"'{teacher_email}' is already assigned to this course.", None
+        raise ConflictException(f"'{teacher_email}' is already assigned to this course.")
 
     assignment = CourseAssignment(
         course_id=course_id,
@@ -532,29 +493,24 @@ async def assign_teacher_single(
     )
     db.add(assignment)
     await db.flush()
-    return True, f"Teacher '{teacher_email}' assigned successfully.", user.id
+    return user.id
 
 
 async def unassign_teacher_single(
     db: AsyncSession,
     course_id: int,
     teacher_email: str,
-) -> tuple[bool, str]:
+) -> None:
     """
     Removes a teacher assignment from a course by email.
-
-    Returns:
-        (True, success_message)
-        (False, error_string)
-
-    Does NOT commit — caller commits.
+    Raises exceptions on failure.
     """
     user_result = await db.execute(
         select(User).where(User.email == teacher_email)
     )
     user = user_result.scalar_one_or_none()
     if user is None:
-        return False, f"No user found with email '{teacher_email}'."
+        raise NotFoundException(f"No user found with email '{teacher_email}'.")
 
     assign_result = await db.execute(
         select(CourseAssignment).where(
@@ -566,11 +522,10 @@ async def unassign_teacher_single(
     )
     assignment = assign_result.scalar_one_or_none()
     if assignment is None:
-        return False, f"'{teacher_email}' is not assigned to this course."
+        raise NotFoundException(f"'{teacher_email}' is not assigned to this course.")
 
     await db.delete(assignment)
     await db.flush()
-    return True, f"Teacher '{teacher_email}' unassigned successfully."
 
 
 async def assign_teachers_bulk_csv(
